@@ -1,0 +1,30 @@
+node_modules/
+data/
+.tmp/
+dist/
+.env
+.env.*
+!.env.example
+seed/
+public/showcase/
+service/.venv/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+scratch/
+*.lnk
+
+# Android build outputs & local config
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+
+# Local test scratch images
+*.jpg
+*.png
+!public/**
+

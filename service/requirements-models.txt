@@ -1,0 +1,4 @@
+# Opsional: hanya dibutuhkan kalau service/models/ berisi bobot .onnx
+# (WaterNet, FUnIE-GAN, UIE, dll). Tanpa ini provider ONNX dinonaktifkan
+# dan service tetap jalan lewat provider spectral / Hugging Face.
+onnxruntime>=1.19

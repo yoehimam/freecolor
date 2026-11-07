@@ -1,0 +1,54 @@
+{
+  "hero": "/showcase/hero.jpg",
+  "styleDemo": {
+    "title": "Penyu hijau, Menjangan",
+    "spot": "Bali · 12 m",
+    "before": "/showcase/turtle-before.jpg",
+    "ratio": 1.778,
+    "variants": {
+      "alami": "/showcase/turtle-alami.jpg",
+      "kreatif": "/showcase/turtle-kreatif.jpg",
+      "super": "/showcase/turtle-super.jpg",
+      "strobe": "/showcase/turtle-strobe.jpg",
+      "lomba": "/showcase/turtle-lomba.jpg"
+    }
+  },
+  "items": [
+    {
+      "id": "turtle",
+      "title": "Penyu hijau, Menjangan",
+      "spot": "Bali · 12 m",
+      "preset": "kreatif",
+      "before": "/showcase/turtle-before.jpg",
+      "after": "/showcase/turtle-kreatif.jpg",
+      "ratio": 1.778
+    },
+    {
+      "id": "reef",
+      "title": "Terumbu karang, Bunaken",
+      "spot": "Sulawesi Utara · 16 m",
+      "preset": "super",
+      "before": "/showcase/reef-before.jpg",
+      "after": "/showcase/reef-super.jpg",
+      "ratio": 1.333
+    },
+    {
+      "id": "diver",
+      "title": "Diver, Komodo",
+      "spot": "Nusa Tenggara · 21 m",
+      "preset": "strobe",
+      "before": "/showcase/diver-before.jpg",
+      "after": "/showcase/diver-strobe.jpg",
+      "ratio": 1.5
+    },
+    {
+      "id": "tank",
+      "title": "Karang akuarium",
+      "spot": "Studio · 0 m",
+      "preset": "alami",
+      "before": "/showcase/tank-before.jpg",
+      "after": "/showcase/tank-alami.jpg",
+      "ratio": 1.333
+    }
+  ]
+}
