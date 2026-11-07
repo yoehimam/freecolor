@@ -876,7 +876,7 @@ app.get(
     if (!rateLimit(req, 'export', 40, 60_000)) throw new HttpError(429, 'Terlalu banyak unduhan.');
 
     const params = normalizeParams(parseParamsQuery(req.query.params));
-    const edge = clampInt(req.query.edge, 1000, 4800, 4200);
+    const edge = clampInt(req.query.edge, 1000, 2560, 2048);
     const format = req.query.fmt === 'webp' ? 'webp' : 'jpeg';
     const engine = req.query.engine === 'spektral' ? 'spektral' : 'lokal';
     const reference = findReference(req.query.ref, req);
@@ -895,29 +895,13 @@ app.get(
       limitInputPixels: MAX_IMAGE_PIXELS,
     });
 
-    // 4K UHD Super-Resolution Upscale (Lanczos3 + Edge-Adaptive Micro-Detail Reconstruction)
-    const min4kEdge = 3840;
-    const maxSide = Math.max(info.width, info.height);
-    if (maxSide < min4kEdge) {
-      image = image
-        .resize({
-          width: min4kEdge,
-          height: min4kEdge,
-          fit: 'inside',
-          withoutEnlargement: false,
-          kernel: 'lanczos3',
-        })
-        .sharpen({ sigma: 0.85, m1: 0.65, m2: 1.5, x1: 2.0, y2: 10.0, y3: 18.0 });
-    } else {
-      image = image.sharpen({ sigma: 0.65, m1: 0.5, m2: 1.2, x1: 2.0, y2: 8.0, y3: 15.0 });
-    }
-
+    image = image.sharpen({ sigma: 0.65, m1: 0.5, m2: 1.2, x1: 2.0, y2: 8.0, y3: 15.0 });
     image = image.withMetadata({ density: 300 });
 
     const buffer =
       format === 'webp'
-        ? await image.webp({ quality: 99, smartSubsample: false, nearLossless: true }).toBuffer()
-        : await image.jpeg({ quality: 99, chromaSubsampling: '4:4:4', mozjpeg: false }).toBuffer();
+        ? await image.webp({ quality: 86 }).toBuffer()
+        : await image.jpeg({ quality: 86, mozjpeg: true }).toBuffer();
 
     const stamp = new Date().toISOString().slice(0, 10);
     const ext = format === 'webp' ? 'webp' : 'jpg';

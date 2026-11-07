@@ -151,8 +151,14 @@ export const offlineEngine = {
     const record = assetStore.get(assetId);
     if (!record) throw new Error('Foto tidak ditemukan.');
 
-    // Process on original image dimensions
-    const { imageData: fullData, width, height } = await scaleImageToImageData(record.origImg, 4000);
+    // Yield to event loop so mobile UI can render loading notice without freezing
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Limit maximum edge to 2048px (Full HD/2K):
+    // Prevents mobile RAM exhaustion/ANR freezes while preserving ultra-crisp detail
+    const MAX_EDGE = 2048;
+    const { imageData: fullData, width, height } = await scaleImageToImageData(record.origImg, MAX_EDGE);
+
     const pixelCopy = new Uint8Array(fullData.data);
     const res = processImage(
       { data: pixelCopy, width, height, channels: 4 },
@@ -166,12 +172,38 @@ export const offlineEngine = {
     const outImgData = new ImageData(new Uint8ClampedArray(res.data.buffer), width, height);
     ctx.putImageData(outImgData, 0, 0);
 
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        const downloadUrl = URL.createObjectURL(blob);
-        resolve({ blob, url: downloadUrl, filename: 'freecolor-' + record.asset.name });
-      }, format, 0.96);
-    });
+    // Strictly enforce file size <= 2.0 MB (2 * 1024 * 1024 bytes)
+    const MAX_BYTES = 2.0 * 1024 * 1024;
+    let quality = 0.86;
+    let blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+
+    // Adaptive compression if file exceeds 2MB
+    let attempts = 0;
+    while (blob && blob.size > MAX_BYTES && quality > 0.40 && attempts < 5) {
+      attempts++;
+      quality -= 0.12;
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+    }
+
+    // Secondary fallback: downscale slightly if still over 2MB
+    if (blob && blob.size > MAX_BYTES) {
+      const scaleCanvas = document.createElement('canvas');
+      const sW = Math.round(width * 0.80);
+      const sH = Math.round(height * 0.80);
+      scaleCanvas.width = sW;
+      scaleCanvas.height = sH;
+      const sCtx = scaleCanvas.getContext('2d');
+      sCtx.drawImage(canvas, 0, 0, sW, sH);
+      blob = await new Promise((resolve) => scaleCanvas.toBlob(resolve, format, 0.78));
+    }
+
+    const downloadUrl = URL.createObjectURL(blob);
+    const ext = format === 'image/webp' ? '.webp' : '.jpg';
+    let rawName = record.asset.name || 'underwater';
+    rawName = rawName.replace(/\.[^/.]+$/, '');
+    const filename = `freecolor-${rawName}${ext}`;
+
+    return { blob, url: downloadUrl, filename, sizeBytes: blob ? blob.size : 0 };
   },
 
   getHealth() {

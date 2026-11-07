@@ -399,7 +399,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
   }
 
   const exportUrl = active && params
-    ? `/api/export/${active.id}?edge=4800&fmt=${format}&engine=${engine}&gear=umum&params=${encodeURIComponent(JSON.stringify(params))}`
+    ? `/api/export/${active.id}?edge=2048&fmt=${format}&engine=${engine}&gear=umum&params=${encodeURIComponent(JSON.stringify(params))}`
     : undefined;
 
   async function handleDownload(e) {
@@ -407,7 +407,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     if (active.id?.startsWith('local-') || api.isOffline?.()) {
       e.preventDefault();
       try {
-        setNotice('Mengekspor resolusi tinggi langsung di HP...');
+        setNotice('Menyimpan foto (target ≤ 2MB)...');
         const { offlineEngine } = await import('../offlineEngine.js');
         const res = await offlineEngine.exportHighRes(active.id, params, format === 'webp' ? 'image/webp' : 'image/jpeg');
         const a = document.createElement('a');
@@ -415,8 +415,12 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         a.download = res.filename;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        setNotice('Foto berhasil disimpan!');
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(res.url);
+        }, 2000);
+        const mb = (res.sizeBytes / (1024 * 1024)).toFixed(1);
+        setNotice(`Foto tersimpan bersih (${mb} MB)!`);
       } catch (err) {
         setError('Gagal ekspor: ' + err.message);
       }
@@ -882,16 +886,16 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
               )}
             </div>
 
-            {/* 4. Streamlined 4K Export Footer */}
+            {/* 4. Streamlined Export Footer */}
             <div className="inspector-footer">
               <div className="footer-top">
                 <div className="seg seg-compact">
-                  <button className={format === 'jpeg' ? 'on' : ''} onClick={() => setFormat('jpeg')}>JPG 4K</button>
-                  <button className={format === 'webp' ? 'on' : ''} onClick={() => setFormat('webp')}>WEBP 4K</button>
+                  <button className={format === 'jpeg' ? 'on' : ''} onClick={() => setFormat('jpeg')}>JPG</button>
+                  <button className={format === 'webp' ? 'on' : ''} onClick={() => setFormat('webp')}>WEBP</button>
                 </div>
               </div>
               <a className="btn btn-solid btn-block footer-dl-btn" href={exportUrl || '#'} onClick={handleDownload} download>
-                Unduh Hasil 4K ({format.toUpperCase()})
+                Simpan Foto ({format.toUpperCase()} ≤ 2MB)
               </a>
             </div>
           </aside>
