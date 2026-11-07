@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Compare from './Compare.jsx';
 import { api } from '../api.js';
+import { PRESETS, OCEAN_LUTS } from '../engine/presets.js';
 
 function isSupportedImageFile(file) {
   if (!file) return false;
@@ -14,39 +15,36 @@ const SLIDER_GROUPS = [
   {
     id: 'warna',
     title: 'Warna (Color)',
-    subtitle: 'Temp, Corak, Saturasi & Pemulihan Bawah Air',
+    subtitle: 'Suhu, Corak, Saturasi & Vibrance',
     items: [
-      { key: 'temperature', label: 'Temp', min: -50, max: 50, bipolar: true, hint: 'Suhu warna: Dingin (Biru) ↔ Hangat (Kuning/Emas)' },
-      { key: 'tint', label: 'Corak (Tint)', min: -50, max: 50, bipolar: true, hint: 'Keseimbangan warna: Hijau (−) ↔ Magenta (+)' },
-      { key: 'saturation', label: 'Saturasi', min: -50, max: 50, bipolar: true, hint: 'Kepekatan seluruh spektrum warna' },
-      { key: 'vibrance', label: 'Vibrance', min: -50, max: 60, bipolar: true, hint: 'Mengangkat warna lembut tanpa membuat skintone berlebihan' },
-      { key: 'redRestore', label: 'Pulihkan Merah', min: 0, max: 100, unit: '%', hint: 'Mengembalikan spektrum warna merah bawah air (karang & skintone)' },
+      { key: 'temperature', label: 'Suhu Warna (Temp)', min: -50, max: 50, bipolar: true, hint: 'Dingin (Biru) ↔ Hangat (Kuning)' },
+      { key: 'tint', label: 'Corak (Tint)', min: -50, max: 50, bipolar: true, hint: 'Hijau (−) ↔ Magenta (+)' },
+      { key: 'saturation', label: 'Saturasi', min: -50, max: 50, bipolar: true, hint: 'Kepekatan warna' },
+      { key: 'vibrance', label: 'Vibrance', min: -50, max: 60, bipolar: true, hint: 'Mengangkat warna lembut tanpa merusak kulit' },
     ],
   },
   {
     id: 'cahaya',
-    title: 'Kecerahan (Light)',
-    subtitle: 'Kecerahan, Kontras, Sorotan, Bayangan, Iluminasi & Hitam',
+    title: 'Cahaya & Kontras',
+    subtitle: 'Kecerahan, Sorotan, Bayangan & Kontras',
     items: [
-      { key: 'exposure', label: 'Kecerahan', min: -50, max: 50, bipolar: true, hint: 'Mengatur terang-gelap keseluruhan foto' },
-      { key: 'contrast', label: 'Kontras', min: -50, max: 50, bipolar: true, hint: 'Ketegasan rentang gelap dan terang' },
-      { key: 'highlight', label: 'Sorotan (Highlight)', min: -50, max: 50, bipolar: true, hint: 'Mengatur detail area terang & sinar matahari permukaan air' },
-      { key: 'shadows', label: 'Bayangan (Shadow)', min: -50, max: 50, bipolar: true, hint: 'Membuka detail area gelap pada karang & wetsuit' },
-      { key: 'whites', label: 'Iluminasi (Whites)', min: -50, max: 50, bipolar: true, hint: 'Mengatur titik putih terang pada pasir & riak air' },
-      { key: 'blacks', label: 'Hitam (Blacks)', min: -50, max: 50, bipolar: true, hint: 'Mengatur kepekatan titik hitam terdalam' },
+      { key: 'exposure', label: 'Kecerahan (Exposure)', min: -50, max: 50, bipolar: true, hint: 'Mengatur terang-gelap keseluruhan foto' },
+      { key: 'contrast', label: 'Kontras', min: -50, max: 50, bipolar: true, hint: 'Ketegasan gelap dan terang' },
+      { key: 'highlight', label: 'Sorotan (Highlight)', min: -50, max: 50, bipolar: true, hint: 'Detail area terang & pantulan sinar matahari' },
+      { key: 'shadows', label: 'Bayangan (Shadow)', min: -50, max: 50, bipolar: true, hint: 'Detail area gelap pada karang & wetsuit' },
+      { key: 'whites', label: 'Iluminasi (Whites)', min: -50, max: 50, bipolar: true, hint: 'Titik putih terang pada pasir & riak air' },
+      { key: 'blacks', label: 'Hitam (Blacks)', min: -50, max: 50, bipolar: true, hint: 'Kepekatan bayangan terdalam' },
     ],
   },
   {
     id: 'efek',
-    title: 'Efek & Detail',
-    subtitle: 'Pertajam, Kejelasan, Kejernihan Air, Pudarkan & Vinyet',
+    title: 'Detail & Ketajaman',
+    subtitle: 'Pertajam, Kejelasan & Vinyet',
     items: [
-      { key: 'sharpen', label: 'Pertajam (Sharpen)', min: 0, max: 100, hint: 'Menajamkan detail objek kabur (Wajah, Hewan & Teks tetap aman)' },
-      { key: 'clarity', label: 'Kejelasan (Clarity)', min: -30, max: 80, bipolar: true, hint: 'Meningkatkan struktur dan dimensi 3D objek' },
-      { key: 'veil', label: 'Kejernihan Air (Dehaze)', min: 0, max: 100, unit: '%', hint: 'Mengangkat kabut partikel keruh di kolom air laut' },
-      { key: 'spotRemoval', label: 'Hapus Backscatter (Marine Snow)', min: 0, max: 100, unit: '%', hint: 'Menghilangkan bintik partikel melayang (marine snow & pantulan blitz) tanpa merusak detail objek' },
-      { key: 'fade', label: 'Pudarkan (Fade)', min: 0, max: 100, hint: 'Efek matte film lembut pada bayangan gelap' },
-      { key: 'vignette', label: 'Vinyet (Vignette)', min: -50, max: 80, bipolar: true, hint: 'Menerangkan (−) atau menggelapkan (+) tepi sudut foto' },
+      { key: 'sharpen', label: 'Pertajam (Sharpen)', min: 0, max: 100, hint: 'Menajamkan detail objek bawah air' },
+      { key: 'clarity', label: 'Kejelasan (Clarity)', min: -30, max: 80, bipolar: true, hint: 'Dimensi 3D dan struktur objek' },
+      { key: 'fade', label: 'Pudarkan (Fade)', min: 0, max: 100, hint: 'Sentuhan film matte lembut' },
+      { key: 'vignette', label: 'Vinyet (Vignette)', min: -50, max: 80, bipolar: true, hint: 'Menerangkan (−) atau menggelapkan (+) tepi sudut' },
     ],
   },
 ];
@@ -80,15 +78,14 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
   const [params, setParams] = useState(null);
   const [baseParams, setBaseParams] = useState(null);
   const [intensity, setIntensity] = useState(100);
-  const [activeTab, setActiveTab] = useState('quick'); // 'quick' | 'tune'
-  const [openGroups, setOpenGroups] = useState({ warna: true, cahaya: true, efek: true });
+  const [activeTab, setActiveTab] = useState('luts'); // 'luts' | 'ai' | 'tune' | 'export'
+  const [tuneFilter, setTuneFilter] = useState('all'); // 'all' | 'warna' | 'cahaya' | 'efek'
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'after' | 'before'
   const [holdBefore, setHoldBefore] = useState(false);
 
   const [afterUrl, setAfterUrl] = useState(null);
   const [renderMs, setRenderMs] = useState(null);
   const [engine] = useState('lokal');
-  const [spectral, setSpectral] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [rendering, setRendering] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -103,7 +100,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
   const [aiWait, setAiWait] = useState(0);
   const [full, setFull] = useState(false);
 
-  // High-Tech 0-100% Processing Progress State
+  // High-Tech 0-100% Progress State (hanya untuk upload awal / explicit AI analysis)
   const [progress, setProgress] = useState({ active: false, percent: 0, stage: '' });
 
   const inputRef = useRef(null);
@@ -120,10 +117,6 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         setAiEnabled(Boolean(h.ai));
       })
       .catch(() => {});
-    api
-      .engineStatus()
-      .then(setSpectral)
-      .catch(() => setSpectral({ ok: false, error: 'service spektrum tidak merespons' }));
   }, []);
 
   useEffect(() => {
@@ -176,11 +169,11 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
 
   useEffect(() => {
     if (!notice) return undefined;
-    const t = setTimeout(() => setNotice(''), 3200);
+    const t = setTimeout(() => setNotice(''), 3000);
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Dynamic 0-100% Progress Processor - ONLY for heavy operations (uploading or explicit AI analysis), NEVER during manual slider grading!
+  // Dynamic Progress Indicator - HANYA untuk Upload & Explicit AI run
   useEffect(() => {
     let timer = null;
     const isHeavy = uploading || aiBusy;
@@ -190,7 +183,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         percent: 15,
         stage: uploading
           ? 'Membaca Spektrum Optik & Kedalaman Kolom Air…'
-          : 'AI Gemini Menganalisis Kedalaman & Pigmen Warna…',
+          : 'AI Menganalisis Kedalaman & Pigmen Warna…',
       });
 
       const startTime = Date.now();
@@ -216,7 +209,6 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         });
       }, 60);
     } else {
-      // Operation completed cleanly
       setProgress((prev) => {
         if (!prev.active) return prev;
         return { active: true, percent: 100, stage: 'Restorasi Selesai!' };
@@ -237,7 +229,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     const files = rawList.filter(isSupportedImageFile).slice(0, 8);
     if (!files.length) {
       if (rawList.length) {
-        setError('Format file belum didukung. Gunakan JPG, PNG, WEBP, atau HEIC/HEIF.');
+        setError('Format file belum didukung. Gunakan JPG, PNG, WEBP, atau HEIC.');
       }
       return;
     }
@@ -269,7 +261,6 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     return () => window.removeEventListener('paste', onPaste);
   }, [uploadFiles]);
 
-  // A new photo resets the working parameters to its auto-tune.
   useEffect(() => {
     if (!active) {
       setParams(null);
@@ -277,7 +268,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
       setAfterUrl(null);
       return;
     }
-    const initial = { ...active.auto, preset: active.auto?.preset || 'alami', refMatch: 0 };
+    const initial = { ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
     setParams(initial);
     setBaseParams(initial);
     setIntensity(100);
@@ -286,7 +277,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     setMetrics(null);
   }, [activeId]);
 
-  // Debounced server render.
+  // Debounced render
   useEffect(() => {
     if (!activeId || !params) return undefined;
     const ticket = ++seq.current;
@@ -308,7 +299,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
       } finally {
         if (ticket === seq.current) setRendering(false);
       }
-    }, 200);
+    }, 180);
 
     return () => {
       clearTimeout(timer);
@@ -329,11 +320,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         setParams(merged);
         setBaseParams(merged);
         setIntensity(100);
-        setNotice(
-          res.fromCache
-            ? 'Kalibrasi AI diterapkan (tersimpan di memori — 0 token terpakai).'
-            : 'Kalibrasi Gemini AI diterapkan secara otomatis.'
-        );
+        setNotice('✦ AI Auto White Balance berhasil diterapkan!');
       }
     } catch (err) {
       setError(err.message);
@@ -358,14 +345,31 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     });
   }
 
+  function applyLut(lutId) {
+    if (!active) return;
+    const base = PRESETS[lutId]?.base || PRESETS.freedive.base;
+    const next = { ...base, preset: lutId, refMatch: 0 };
+    setBaseParams(next);
+    const factor = intensity / 100;
+    const scaled = { ...next };
+    for (const k of RESTORATION_KEYS) {
+      if (next[k] !== undefined) {
+        scaled[k] = Math.round(next[k] * factor);
+      }
+    }
+    setParams(scaled);
+    const lutMeta = OCEAN_LUTS.find((l) => l.id === lutId);
+    setNotice(`LUT ${lutMeta ? lutMeta.name : lutId} diterapkan.`);
+  }
+
   function resetParams() {
     if (!active) return;
-    const initial = { ...active.auto, preset: active.auto?.preset || 'alami', refMatch: 0 };
+    const initial = { ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
     setParams(initial);
     setBaseParams(initial);
     setIntensity(100);
     setAi(null);
-    setNotice('Kembali ke setelan restorasi otomatis awal.');
+    setNotice('Kembali ke setelan otomatis awal.');
   }
 
   const removeAsset = useCallback((idToRemove) => {
@@ -390,10 +394,6 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     updateSingleSlider(key, fallback);
   }
 
-  function toggleGroup(id) {
-    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
   async function toggleFullscreen() {
     const next = !full;
     setFull(next);
@@ -402,19 +402,13 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     try {
       if (next) await el.requestFullscreen?.();
       else if (document.fullscreenElement) await document.exitFullscreen();
-    } catch {
-      /* overlay fallback */
-    }
+    } catch {}
   }
 
-  const exportUrl = active && params
-    ? `/api/export/${active.id}?edge=2048&fmt=${format}&engine=${engine}&gear=umum&params=${encodeURIComponent(JSON.stringify(params))}`
-    : undefined;
-
   async function handleDownload(e) {
+    if (e && e.preventDefault) e.preventDefault();
     if (!active || !params) return;
     if (active.id?.startsWith('local-') || api.isOffline?.()) {
-      e.preventDefault();
       try {
         setNotice('Menyimpan ke Galeri HP (Full HD)...');
         const { offlineEngine } = await import('../offlineEngine.js');
@@ -423,7 +417,6 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         if (res.gallerySaved) {
           setNotice('Foto berhasil tersimpan di Galeri HP (Album: FreeColor)!');
         } else {
-          // Web browser download fallback
           const a = document.createElement('a');
           a.href = res.url;
           a.download = res.filename;
@@ -443,7 +436,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
 
   const effectiveViewMode = holdBefore ? 'before' : viewMode;
 
-  // Compute live RGB balance percentages for visual spectrum meter
+  // Compute live RGB balance percentages
   const rawR = Math.round((active?.stats?.meanR ?? 0.22) * 100);
   const rawG = Math.round((active?.stats?.meanG ?? 0.55) * 100);
   const rawB = Math.round((active?.stats?.meanB ?? 0.52) * 100);
@@ -452,7 +445,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
 
   return (
     <div
-      className="ed"
+      className="ocean-app"
       onDragEnter={(e) => {
         e.preventDefault();
         dragDepth.current += 1;
@@ -470,108 +463,106 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         uploadFiles(e.dataTransfer?.files);
       }}
     >
-      <header className="ed-top">
-        <button
-          className="ed-back"
-          onClick={demoMode ? undefined : onHome}
-          aria-label="FreeColor Studio"
-          style={demoMode ? { cursor: 'default' } : undefined}
-        >
-          {!demoMode && <span>←</span>} <b>FREECOLOR</b> <em className="ed-studio-tag">STUDIO</em>
-        </button>
+      {/* 1. Header Bar: Ocean Edit Brand + Mode Demo */}
+      <header className="ocean-top-bar">
+        <div className="ocean-brand">
+          <span className="ocean-brand-icon">🌊</span>
+          <div className="ocean-brand-text">
+            <b>OCEAN EDIT</b>
+            <span className="ocean-demo-tag">DEMO MODE · OFFLINE</span>
+          </div>
+        </div>
 
-        <div className="ed-actions">
-          {metrics && (
-            <span className="ed-telemetry" title="Keutuhan struktur piksel & waktu proses">
-              <b>Struktur {metrics.structure}%</b>
-              {metrics.gainR ? ` · Merah ×${metrics.gainR}` : ''}
-              {renderMs != null ? ` · ${renderMs}ms` : ''}
-            </span>
+        <div className="ocean-top-actions">
+          {active && (
+            <div className="ocean-view-selector" role="group" aria-label="Mode tampilan">
+              <button
+                type="button"
+                className={viewMode === 'split' && !holdBefore ? 'on' : ''}
+                onClick={() => setViewMode('split')}
+                title="Mode Belah (Split)"
+              >
+                Belah
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'after' && !holdBefore ? 'on' : ''}
+                onClick={() => setViewMode('after')}
+                title="Tampilan Hasil Penuh"
+              >
+                Hasil
+              </button>
+              <button
+                type="button"
+                className={holdBefore || viewMode === 'before' ? 'on' : ''}
+                onMouseDown={() => setHoldBefore(true)}
+                onMouseUp={() => setHoldBefore(false)}
+                onMouseLeave={() => setHoldBefore(false)}
+                onTouchStart={() => setHoldBefore(true)}
+                onTouchEnd={() => setHoldBefore(false)}
+                onClick={() => setViewMode((v) => (v === 'before' ? 'split' : 'before'))}
+                title="Tahan untuk melihat foto asli"
+              >
+                Asli
+              </button>
+            </div>
           )}
+
+          <button
+            type="button"
+            className="ocean-icon-btn"
+            onClick={toggleFullscreen}
+            title="Layar Penuh (F)"
+          >
+            {full ? '⤓' : '⛶'}
+          </button>
+
+          <button
+            type="button"
+            className="ocean-add-btn"
+            onClick={() => inputRef.current?.click()}
+          >
+            + Foto
+          </button>
         </div>
       </header>
 
+      {/* 2. Body View: Empty / Upload or Active Editor */}
       {!assets.length ? (
-        <section className="ed-empty">
-          <div className={`dropzone ${drop ? 'on' : ''}`} onClick={() => inputRef.current?.click()}>
-            <div className="dz-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" width="42" height="42">
-                <path d="M24 32V12m0 0-7 7m7-7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 30v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <section className="ocean-empty-view">
+          <div className={`ocean-upload-card ${drop ? 'drag-on' : ''}`} onClick={() => inputRef.current?.click()}>
+            <div className="ocean-upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" width="52" height="52">
+                <path d="M24 32V12m0 0-7 7m7-7 7 7" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M8 30v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
               </svg>
             </div>
-            <h1>{uploading ? 'Memproses Foto…' : 'Buka Foto Bawah Air'}</h1>
-            <p>
-              Pilih foto langsung dari Galeri HP atau Kamera.
+            <h1>{uploading ? 'Membaca Spektrum Optik…' : 'OCEAN EDIT STUDIO'}</h1>
+            <p className="ocean-empty-desc">
+              Grading warna bawah air profesional untuk Scuba & Freediving.
               <br />
-              JPG, PNG, WEBP, HEIC · Pemrosesan 100% Offline Langsung di HP.
+              <b>100% In-Device Offline Engine</b> · Cepat & Ringan di HP Anda.
             </p>
-            <span className="btn btn-solid" style={{ padding: '14px 28px', fontSize: '15px' }}>
-              {uploading ? 'Sedang Memproses…' : '📸 Pilih dari Galeri HP'}
-            </span>
-            <small style={{ marginTop: '8px', color: '#00d4ff' }}>
-              Restorasi spektrum warna otomatis · Hasil jernih alami
-            </small>
+            <button type="button" className="ocean-btn-hero">
+              {uploading ? 'Sedang Memproses Foto…' : '📸 Buka Foto Bawah Air'}
+            </button>
+            <div className="ocean-feature-tags">
+              <span>🌊 Solstice & Underwater LUTs</span>
+              <span>✦ AI Auto White Balance</span>
+              <span>⚡ Full HD Resolusi Tinggi</span>
+              <span>💾 Simpan Langsung ke Galeri</span>
+            </div>
           </div>
           {error && <p className="ed-error">{error}</p>}
         </section>
       ) : (
-        <div className="ed-body">
-          <section className="ed-stage">
-            <div className="stage-bar">
-              <div className="stage-file">
-                <b>{active?.name}</b>
-                <span>
-                  {active?.width}×{active?.height} · Gaya Freedive Time
-                </span>
-              </div>
-
-              <div className="stage-tools">
-                <div className="view-pills" role="group" aria-label="Mode tampilan kanvas">
-                  <button
-                    className={viewMode === 'split' && !holdBefore ? 'on' : ''}
-                    onClick={() => setViewMode('split')}
-                    title="Mode belah sebelum & sesudah"
-                  >
-                    Belah
-                  </button>
-                  <button
-                    className={viewMode === 'after' && !holdBefore ? 'on' : ''}
-                    onClick={() => setViewMode('after')}
-                    title="Tampilkan hasil penuh"
-                  >
-                    Hasil
-                  </button>
-                  <button
-                    className={holdBefore || viewMode === 'before' ? 'on' : ''}
-                    onMouseDown={() => setHoldBefore(true)}
-                    onMouseUp={() => setHoldBefore(false)}
-                    onMouseLeave={() => setHoldBefore(false)}
-                    onTouchStart={() => setHoldBefore(true)}
-                    onTouchEnd={() => setHoldBefore(false)}
-                    onClick={() => setViewMode((v) => (v === 'before' ? 'split' : 'before'))}
-                    title="Tahan tombol ini atau tekan Spasi untuk melihat foto asli"
-                  >
-                    Asli
-                  </button>
-                </div>
-
-                <button
-                  className="ghost-btn"
-                  onClick={toggleFullscreen}
-                  title="Layar penuh (F)"
-                >
-                  {full ? 'Keluar penuh' : 'Layar penuh'}
-                </button>
-                <button className="btn-solid" style={{ padding: '6px 14px', fontSize: '11px', borderRadius: '8px' }} onClick={() => inputRef.current?.click()}>+ Foto</button>
-              </div>
-            </div>
-
+        <div className="ocean-editor-layout">
+          {/* Main Visual Stage / Viewport */}
+          <section className="ocean-viewport">
             <div
               ref={stageRef}
-              className={`stage-frame ${full ? 'is-full' : ''}`}
+              className={`ocean-stage-frame ${full ? 'is-full' : ''}`}
               onDoubleClick={toggleFullscreen}
-              style={{ position: 'relative' }}
             >
               {active && (
                 <Compare
@@ -584,28 +575,23 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                   afterLabel="HASIL"
                 />
               )}
-              {full && (
-                <button className="stage-exit" onClick={toggleFullscreen} aria-label="Keluar layar penuh">
-                  Tutup ×
-                </button>
-              )}
 
-              {/* Discreet non-blocking live update indicator during manual grading */}
+              {/* Discreet live loading indicator during manual grading */}
               {rendering && !progress.active && (
-                <div className="stage-mini-loading" title="Memperbarui tampilan foto...">
-                  <span className="mini-spin" />
+                <div className="ocean-mini-badge" title="Memperbarui tampilan...">
+                  <span className="ocean-spin" />
                   <span>Memperbarui…</span>
                 </div>
               )}
 
-              {/* High-Tech 0-100% Processing Progress Overlay */}
+              {/* High-Tech 0-100% Progress Modal Overlay */}
               {progress.active && (
                 <div className="processing-progress-overlay">
                   <div className="processing-progress-card">
                     <div className="processing-header">
                       <span className="processing-spinner" />
                       <div className="processing-info">
-                        <h4>Memproses Restorasi Bawah Air</h4>
+                        <h4>Ocean Edit · Rekonstruksi Spektrum</h4>
                         <p>{progress.stage}</p>
                       </div>
                       <span className="processing-number">{progress.percent}%</span>
@@ -617,21 +603,22 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                       />
                     </div>
                     <div className="processing-badges">
-                      <span className={`p-badge ${progress.percent >= 25 ? 'done' : ''}`}>🌊 Kolom Air</span>
-                      <span className={`p-badge ${progress.percent >= 50 ? 'done' : ''}`}>🏖️ Pasir & Subjek</span>
+                      <span className={`p-badge ${progress.percent >= 25 ? 'done' : ''}`}>🌊 Air Laut</span>
+                      <span className={`p-badge ${progress.percent >= 50 ? 'done' : ''}`}>🏖️ Subjek</span>
                       <span className={`p-badge ${progress.percent >= 75 ? 'done' : ''}`}>🎨 Pigmen</span>
-                      <span className={`p-badge ${progress.percent >= 90 ? 'done' : ''}`}>🛡️ Backscatter</span>
+                      <span className={`p-badge ${progress.percent >= 90 ? 'done' : ''}`}>🛡️ Dehaze</span>
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="filmstrip">
+            {/* Thumbnail Filmstrip with Close Button */}
+            <div className="ocean-filmstrip">
               {assets.map((a) => (
                 <div
                   key={a.id}
-                  className={`strip-item ${a.id === activeId ? 'on' : ''}`}
+                  className={`ocean-strip-thumb ${a.id === activeId ? 'active' : ''}`}
                   onClick={() => setActiveId(a.id)}
                   title={a.name}
                   role="button"
@@ -652,247 +639,295 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                   </button>
                 </div>
               ))}
-              <button className="strip-add" onClick={() => inputRef.current?.click()} aria-label="Tambah foto">
+              <button
+                type="button"
+                className="ocean-strip-add"
+                onClick={() => inputRef.current?.click()}
+                title="Tambah Foto"
+              >
                 +
               </button>
             </div>
           </section>
 
-          <aside className="ed-rail">
-            {/* 1. Compact Optical Diagnostics & RGB Spectrum Header */}
-            <div className="inspector-diag">
-              <div className="diag-row">
-                <div className="diag-title">
-                  <span>ANALISA SPEKTRUM</span>
-                  <span className={`badge ${aiEnabled ? 'ok' : ''}`}>
-                    {aiEnabled ? 'AI Aktif' : 'Sensor Optik'}
-                  </span>
-                </div>
-                {active?.condition && (
-                  <div className="diag">
-                    <span className="chip"><b>Air</b>{active.condition.cast}</span>
-                    <span className="chip"><b>Defisit R</b>−{active.condition.redLoss}%</span>
-                    <span className="chip"><b>Kabut</b>{active.condition.haze}</span>
-                    <span className="chip"><b>Detail</b>{active.condition.detail}</span>
-                    {active.condition.objectRepair && (
-                      <span className="chip"><b>Objek</b>{active.condition.objectRepair}</span>
-                    )}
-                    <span className="chip" title="Masking Semantik Otomatis gaya Lightroom (Kulit Manusia, Hewan Laut, Karang & Kolom Air)">
-                      <b>Masking AI</b>{active.condition.semanticMask || (active.condition.cast === 'hijau' ? 'Kulit Manusia + Air Laut' : 'Hewan Laut + Karang + Air')}
-                    </span>
-                    {active.condition.identityLock && (
-                      <span className="chip"><b>Kunci AI</b>{active.condition.identityLock}</span>
-                    )}
-                  </div>
-                )}
-                <div className="rgb-bars" title="Keseimbangan spektrum kanal Merah, Hijau, dan Biru">
-                  <div className="rgb-row">
-                    <span>R</span>
-                    <div className="rgb-track">
-                      <i className="rgb-fill r" style={{ width: `${Math.min(100, Math.max(8, balR * 1.3))}%` }} />
-                    </div>
-                    <small>{balR}%</small>
-                  </div>
-                  <div className="rgb-row">
-                    <span>G</span>
-                    <div className="rgb-track">
-                      <i className="rgb-fill g" style={{ width: `${Math.min(100, Math.max(8, rawG * 1.25))}%` }} />
-                    </div>
-                    <small>{rawG}%</small>
-                  </div>
-                  <div className="rgb-row">
-                    <span>B</span>
-                    <div className="rgb-track">
-                      <i className="rgb-fill b" style={{ width: `${Math.min(100, Math.max(8, rawB * 1.25))}%` }} />
-                    </div>
-                    <small>{rawB}%</small>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Simplified 2-Tab Navigation */}
-            <nav className="inspector-tabs" aria-label="Kategori pengaturan">
+          {/* Ocean Edit Control Deck */}
+          <aside className="ocean-deck">
+            {/* 4 Bottom Navigation Tabs */}
+            <nav className="ocean-deck-tabs" aria-label="Navigasi Fitur Ocean Edit">
               <button
-                className={activeTab === 'quick' ? 'on' : ''}
-                onClick={() => setActiveTab('quick')}
+                type="button"
+                className={`ocean-tab ${activeTab === 'luts' ? 'active' : ''}`}
+                onClick={() => setActiveTab('luts')}
               >
-                Filter & AI
+                <span className="tab-icon">🎨</span>
+                <span className="tab-title">LUTs</span>
               </button>
               <button
-                className={activeTab === 'tune' ? 'on' : ''}
+                type="button"
+                className={`ocean-tab ${activeTab === 'ai' ? 'active' : ''}`}
+                onClick={() => setActiveTab('ai')}
+              >
+                <span className="tab-icon">✦</span>
+                <span className="tab-title">AI Balance</span>
+              </button>
+              <button
+                type="button"
+                className={`ocean-tab ${activeTab === 'tune' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tune')}
               >
-                Sesuaikan
+                <span className="tab-icon">🎚️</span>
+                <span className="tab-title">Sesuaikan</span>
+              </button>
+              <button
+                type="button"
+                className={`ocean-tab ${activeTab === 'export' ? 'active' : ''}`}
+                onClick={() => setActiveTab('export')}
+              >
+                <span className="tab-icon">💾</span>
+                <span className="tab-title">Simpan</span>
               </button>
             </nav>
 
-            {/* 3. Tab Content */}
-            <div className="inspector-scroll">
-              {activeTab === 'quick' && (
-                <>
-                  {/* Master Intensity & AI Auto Button */}
-                  <div className="rail-card highlight-card">
-                    <div className="rail-head">
-                      <h3>Kekuatan Filter & AI</h3>
-                      <button className="link-btn" onClick={resetParams}>Reset Otomatis</button>
+            {/* Tab Panes */}
+            <div className="ocean-deck-content">
+              {/* TAB 1: UNDERWATER LUTS */}
+              {activeTab === 'luts' && (
+                <div className="ocean-tab-pane">
+                  {/* Master Intensity */}
+                  <div className="ocean-card">
+                    <div className="slider-top">
+                      <label htmlFor="sl-lut-intensity">Kekuatan LUT ({intensity}%)</label>
+                      <button type="button" className="link-btn" onClick={resetParams}>Reset</button>
                     </div>
-
-                    <div className="slider master-slider">
-                      <div className="slider-top">
-                        <label htmlFor="sl-master">Intensitas Pemulihan</label>
-                        <output>{intensity}%</output>
-                      </div>
-                      <input
-                        id="sl-master"
-                        type="range"
-                        min={0}
-                        max={140}
-                        step={1}
-                        value={intensity}
-                        onDoubleClick={() => applyIntensityScale(100)}
-                        onChange={(e) => applyIntensityScale(Number(e.target.value))}
-                      />
-                      <div className="master-ticks">
-                        <span>Asli (0%)</span>
-                        <span>Normal (100%)</span>
-                        <span>Kuat (140%)</span>
-                      </div>
+                    <input
+                      id="sl-lut-intensity"
+                      type="range"
+                      min={0}
+                      max={150}
+                      step={1}
+                      value={intensity}
+                      onDoubleClick={() => applyIntensityScale(100)}
+                      onChange={(e) => applyIntensityScale(Number(e.target.value))}
+                    />
+                    <div className="master-ticks">
+                      <span>0% (Asli)</span>
+                      <span>100% (Standar)</span>
+                      <span>150% (Kuat)</span>
                     </div>
-
-                    <div className="quick-actions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <button className="btn btn-solid btn-block ai-auto-hero-btn" onClick={runAI} disabled={aiBusy || !active}>
-                        {aiBusy
-                          ? `Gemini Menganalisa Foto… ${aiWait ? `${aiWait}s` : ''}`.trim()
-                          : '✦ Auto-Kalibrasi AI (Restorasi Asli)'}
-                      </button>
-
-                      <button
-                        type="button"
-                        className={`btn btn-block ${(params?.spotRemoval || 0) >= 65 ? 'btn-primary' : 'btn-ghost'}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 8,
-                          padding: '9px 14px',
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          borderRadius: 8,
-                          border: (params?.spotRemoval || 0) >= 65 ? '1px solid #00d4ff' : '1px solid rgba(255, 255, 255, 0.15)',
-                          background: (params?.spotRemoval || 0) >= 65 ? 'rgba(0, 212, 255, 0.16)' : 'rgba(255, 255, 255, 0.03)',
-                          color: (params?.spotRemoval || 0) >= 65 ? '#00d4ff' : 'var(--text-soft)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                        onClick={() => {
-                          const isHigh = (params?.spotRemoval || 0) >= 65;
-                          updateSingleSlider('spotRemoval', isHigh ? 30 : 85);
-                        }}
-                        title="Inpainting optik untuk melenyapkan bintik partikel melayang (marine snow) dan pantulan blitz"
-                      >
-                        <span>{(params?.spotRemoval || 0) >= 65 ? '🛡️ Mode Hapus Backscatter: AKTIF' : '🛡️ Mode Hapus Backscatter (Marine Snow)'}</span>
-                        {metrics?.backscatterSpots > 0 && (
-                          <span style={{ fontSize: '0.74rem', background: 'rgba(0,0,0,0.4)', padding: '2px 7px', borderRadius: 4, color: '#38d6c4' }}>
-                            {metrics.backscatterSpots} bintik terhapus
-                          </span>
-                        )}
-                      </button>
-
-                      <div className="identity-lock-note">
-                        <span className="lock-icon">🔒</span>
-                        <span><b>Identity-Lock:</b> 100% foto asli terjaga. Wajah, alat & objek tidak akan diubah/ditukar.</span>
-                      </div>
-
-                      {/* 4 AI Specialists Status */}
-                      <div className="identity-lock-note" style={{ marginTop: 2, borderColor: 'rgba(0, 212, 255, 0.35)', background: 'rgba(0, 212, 255, 0.05)' }}>
-                        <span className="lock-icon">⚡</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                          <span style={{ color: '#00d4ff', fontWeight: 700, fontSize: '0.80rem', letterSpacing: '0.5px' }}>
-                            4 AI SPESIALIS AKTIF DALAM PIPELINE:
-                          </span>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                            <span className="chip" style={{ fontSize: '0.74rem', background: 'rgba(0, 212, 255, 0.12)', borderColor: '#00d4ff', color: '#e0f7ff' }}>
-                              🌊 <b>Air</b> Sea-Thru
-                            </span>
-                            <span className="chip" style={{ fontSize: '0.74rem', background: 'rgba(56, 214, 196, 0.12)', borderColor: '#38d6c4', color: '#e0fbf7' }}>
-                              🎯 <b>Masking</b> SUIM
-                            </span>
-                            <span className="chip" style={{ fontSize: '0.74rem', background: 'rgba(255, 149, 0, 0.12)', borderColor: '#ff9500', color: '#fff3e0' }}>
-                              🎨 <b>Objek</b> Pigmen Asli
-                            </span>
-                            <span className="chip" style={{ fontSize: '0.74rem', background: 'rgba(52, 199, 89, 0.12)', borderColor: '#34c759', color: '#e8f9ed' }}>
-                              🛡️ <b>Backscatter</b> Inpainting
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="identity-lock-note" style={{ marginTop: 2, borderColor: 'rgba(56, 214, 196, 0.28)' }}>
-                        <span className="lock-icon">🎯</span>
-                        <span>
-                          <b>AI Semantic Masking (Gaya Lightroom):</b> Deteksi & pisahkan tone referensi otomatis —{' '}
-                          <b>Manusia</b>{metrics?.masks?.human != null ? ` (${metrics.masks.human}%)` : ''} ·{' '}
-                          <b>Hewan Laut</b>{metrics?.masks?.fauna != null ? ` (${metrics.masks.fauna}%)` : ''} ·{' '}
-                          <b>Karang</b>{metrics?.masks?.coral != null ? ` (${metrics.masks.coral}%)` : ''} ·{' '}
-                          <b>Air Laut</b>{metrics?.masks?.water != null ? ` (${metrics.masks.water}%)` : ''}
-                          {metrics?.backscatterSpots > 0 ? ` · Backscatter (${metrics.backscatterSpots} bintik)` : ''}.
-                        </span>
-                      </div>
-                    </div>
-
-                    {ai && ai.mode === 'ai' && (
-                      <div className="ai-result-box">
-                        <div className="diag">
-                          <span className="chip"><b>Perairan</b>{ai.scene}</span>
-                          {ai.depthM != null && <span className="chip"><b>Kedalaman</b>±{ai.depthM}m</span>}
-                          <span className="chip"><b>Partikel</b>{ai.backscatter}</span>
-                          {ai.subject && <span className="chip"><b>Subjek</b>{ai.subject}</span>}
-                        </div>
-                        <p className="ai-note">{ai.notes}</p>
-                      </div>
-                    )}
-                    {ai && ai.mode !== 'ai' && (
-                      <div className="ai-result-box" style={{ borderColor: 'rgba(255, 176, 32, 0.4)' }}>
-                        <p className="ai-note" style={{ color: 'var(--text-soft)' }}>
-                          {ai.mode === 'error'
-                            ? ai.error && (ai.error.includes('429') || ai.error.includes('quota') || ai.error.includes('exceeded'))
-                              ? '✦ Kuota AI cloud sedang padat (429). Kalibrasi otomatis dialihkan ke Analisa Optik Spektral lokal.'
-                              : `Info AI: ${ai.error}`
-                            : ai.notes}
-                        </p>
-                      </div>
-                    )}
                   </div>
-                </>
+
+                  <div className="ocean-section-header">
+                    <span>UNDERWATER LOOK-UP TABLES (LUTs)</span>
+                    <small>Dikalibrasi untuk GoPro, DJI & Mirrorless</small>
+                  </div>
+
+                  <div className="ocean-lut-list">
+                    {OCEAN_LUTS.map((lut) => {
+                      const isSel = (params?.preset || 'freedive') === lut.id;
+                      return (
+                        <button
+                          key={lut.id}
+                          type="button"
+                          className={`ocean-lut-card ${isSel ? 'active' : ''}`}
+                          onClick={() => applyLut(lut.id)}
+                        >
+                          <div className="ocean-lut-badge" style={{ borderColor: lut.color, background: `${lut.color}18` }}>
+                            <span>{lut.icon}</span>
+                          </div>
+                          <div className="ocean-lut-info">
+                            <div className="ocean-lut-row">
+                              <span className="ocean-lut-name">{lut.name}</span>
+                              {isSel && <span className="ocean-lut-active-tag">AKTIF</span>}
+                            </div>
+                            <span className="ocean-lut-tag">{lut.tag}</span>
+                            <p className="ocean-lut-desc">{lut.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Diagnostic Spectrum */}
+                  {active?.condition && (
+                    <div className="ocean-spec-card">
+                      <div className="ocean-spec-head">
+                        <span>SENSOR OPTIK SPEKTRUM AIR</span>
+                        <span className="ocean-tag-cyan">Cast {active.condition.cast}</span>
+                      </div>
+                      <div className="diag">
+                        <span className="chip"><b>Defisit Merah</b>−{active.condition.redLoss}%</span>
+                        <span className="chip"><b>Partikel Haze</b>{active.condition.haze}</span>
+                        <span className="chip"><b>Kerapatan 3D</b>{active.condition.detail}</span>
+                      </div>
+                      <div className="rgb-bars" style={{ marginTop: 8 }}>
+                        <div className="rgb-row">
+                          <span>R</span>
+                          <div className="rgb-track">
+                            <i className="rgb-fill r" style={{ width: `${Math.min(100, Math.max(8, balR * 1.3))}%` }} />
+                          </div>
+                          <small>{balR}%</small>
+                        </div>
+                        <div className="rgb-row">
+                          <span>G</span>
+                          <div className="rgb-track">
+                            <i className="rgb-fill g" style={{ width: `${Math.min(100, Math.max(8, rawG * 1.25))}%` }} />
+                          </div>
+                          <small>{rawG}%</small>
+                        </div>
+                        <div className="rgb-row">
+                          <span>B</span>
+                          <div className="rgb-track">
+                            <i className="rgb-fill b" style={{ width: `${Math.min(100, Math.max(8, rawB * 1.25))}%` }} />
+                          </div>
+                          <small>{rawB}%</small>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
-              {activeTab === 'tune' && params && (
-                <div className="tune-groups">
-                  <div className="tune-bar">
-                    <span>Klik 2× pada slider untuk reset ke awal</span>
-                    <button className="link-btn" onClick={resetParams}>Reset Semua</button>
+              {/* TAB 2: AI BALANCE & OPTICAL RECOVERY */}
+              {activeTab === 'ai' && (
+                <div className="ocean-tab-pane">
+                  {/* Hero Auto Button */}
+                  <div className="ocean-ai-card">
+                    <button
+                      type="button"
+                      className="ocean-ai-hero-btn"
+                      onClick={runAI}
+                      disabled={aiBusy || !active}
+                    >
+                      <span className="ai-spark">✦</span>
+                      <div className="ai-btn-text">
+                        <b>{aiBusy ? `AI Menganalisis Spektrum… ${aiWait ? `${aiWait}s` : ''}` : 'AI Auto White Balance'}</b>
+                        <small>{aiBusy ? 'Menghitung kedalaman & red restoration…' : 'Satu sentuhan: otomatis pulihkan spektrum merah & eliminasi kabut air'}</small>
+                      </div>
+                    </button>
+
+                    {ai && (
+                      <div className="ai-result-box" style={{ marginTop: 10 }}>
+                        <div className="diag">
+                          {ai.scene && <span className="chip"><b>Tipe Air</b>{ai.scene}</span>}
+                          {ai.depthM != null && <span className="chip"><b>Kedalaman</b>±{ai.depthM}m</span>}
+                          {ai.backscatter && <span className="chip"><b>Partikel</b>{ai.backscatter}</span>}
+                        </div>
+                        {ai.notes && <p className="ai-note">{ai.notes}</p>}
+                      </div>
+                    )}
                   </div>
 
-                  {SLIDER_GROUPS.map((group) => {
-                    const isOpen = openGroups[group.id] !== false;
-                    return (
-                      <div key={group.id} className={`acc-card ${isOpen ? 'open' : ''}`}>
-                        <button
-                          type="button"
-                          className="acc-head"
-                          onClick={() => toggleGroup(group.id)}
-                          aria-expanded={isOpen}
-                        >
-                          <div>
-                            <h3>{group.title}</h3>
-                            <span>{group.subtitle}</span>
-                          </div>
-                          <i className="acc-chevron">{isOpen ? '−' : '+'}</i>
-                        </button>
+                  <div className="ocean-section-header">
+                    <span>KONTROL SPEKTRUM AIR (PHYSICS ENGINE)</span>
+                  </div>
 
-                        {isOpen && (
-                          <div className="acc-body">
+                  <div className="ocean-slider-group">
+                    {/* 1. Pulihkan Spektrum Merah */}
+                    <div className="slider">
+                      <div className="slider-top">
+                        <label htmlFor="sl-redRestore">Pulihkan Merah (Red Recovery)</label>
+                        <output>{Math.round(params?.redRestore || 0)}%</output>
+                      </div>
+                      <input
+                        id="sl-redRestore"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={params?.redRestore || 0}
+                        onDoubleClick={() => resetSingleSlider('redRestore')}
+                        onChange={(e) => updateSingleSlider('redRestore', Number(e.target.value))}
+                      />
+                    </div>
+
+                    {/* 2. Kejernihan Air / Dehaze */}
+                    <div className="slider">
+                      <div className="slider-top">
+                        <label htmlFor="sl-veil">Kejernihan Air (Dehaze)</label>
+                        <output>{Math.round(params?.veil || 0)}%</output>
+                      </div>
+                      <input
+                        id="sl-veil"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={params?.veil || 0}
+                        onDoubleClick={() => resetSingleSlider('veil')}
+                        onChange={(e) => updateSingleSlider('veil', Number(e.target.value))}
+                      />
+                    </div>
+
+                    {/* 3. Reduksi Fog Kedalaman */}
+                    <div className="slider">
+                      <div className="slider-top">
+                        <label htmlFor="sl-attenuation">Keseimbangan Kedalaman</label>
+                        <output>{Math.round(params?.attenuation || 0)}%</output>
+                      </div>
+                      <input
+                        id="sl-attenuation"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={params?.attenuation || 0}
+                        onDoubleClick={() => resetSingleSlider('attenuation')}
+                        onChange={(e) => updateSingleSlider('attenuation', Number(e.target.value))}
+                      />
+                    </div>
+
+                    {/* 4. Marine Snow / Backscatter Inpainting */}
+                    <div className="slider">
+                      <div className="slider-top">
+                        <label htmlFor="sl-spotRemoval">Hapus Backscatter (Marine Snow)</label>
+                        <output>{Math.round(params?.spotRemoval || 0)}%</output>
+                      </div>
+                      <input
+                        id="sl-spotRemoval"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={params?.spotRemoval || 0}
+                        onDoubleClick={() => resetSingleSlider('spotRemoval')}
+                        onChange={(e) => updateSingleSlider('spotRemoval', Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: SESUAIKAN (MANUAL GRADING) */}
+              {activeTab === 'tune' && params && (
+                <div className="ocean-tab-pane">
+                  <div className="ocean-tune-filters">
+                    {[
+                      { id: 'all', label: 'Semua' },
+                      { id: 'warna', label: 'Warna' },
+                      { id: 'cahaya', label: 'Cahaya' },
+                      { id: 'efek', label: 'Detail' },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`ocean-filter-pill ${tuneFilter === f.id ? 'on' : ''}`}
+                        onClick={() => setTuneFilter(f.id)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                    <button type="button" className="link-btn" style={{ marginLeft: 'auto' }} onClick={resetParams}>
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="ocean-tune-stack">
+                    {SLIDER_GROUPS
+                      .filter((g) => tuneFilter === 'all' || tuneFilter === g.id)
+                      .map((group) => (
+                        <div key={group.id} className="ocean-group-card">
+                          <h4 className="ocean-group-title">{group.title}</h4>
+                          <div className="ocean-slider-group">
                             {group.items.map((s) => {
                               const val = Math.round(params[s.key] ?? 0);
                               return (
@@ -918,30 +953,86 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                               );
                             })}
                           </div>
-                        )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: SIMPAN / EKSPOR */}
+              {activeTab === 'export' && (
+                <div className="ocean-tab-pane">
+                  <div className="ocean-export-box">
+                    <h3>Ekspor Galeri Foto</h3>
+                    <p>Format Full HD yang tajam dan otomatis disesuaikan agar kompatibel dengan seluruh HP Android.</p>
+
+                    <div className="ocean-format-selector">
+                      <button
+                        type="button"
+                        className={`format-option ${format === 'jpeg' ? 'active' : ''}`}
+                        onClick={() => setFormat('jpeg')}
+                      >
+                        <b>JPG / JPEG</b>
+                        <small>Standar Galeri Universal</small>
+                      </button>
+                      <button
+                        type="button"
+                        className={`format-option ${format === 'webp' ? 'active' : ''}`}
+                        onClick={() => setFormat('webp')}
+                      >
+                        <b>WEBP</b>
+                        <small>Modern & Hemat Ukuran</small>
+                      </button>
+                    </div>
+
+                    <div className="ocean-spec-table">
+                      <div className="spec-item">
+                        <span>Resolusi</span>
+                        <b>Full HD (1920px)</b>
                       </div>
-                    );
-                  })}
+                      <div className="spec-item">
+                        <span>Ukuran Maksimal</span>
+                        <b>&le; 2.0 MB</b>
+                      </div>
+                      <div className="spec-item">
+                        <span>Target Penyimpanan</span>
+                        <b>Galeri HP (Album: FreeColor)</b>
+                      </div>
+                      <div className="spec-item">
+                        <span>Kecepatan Simpan</span>
+                        <b>Instan (Direct MediaStore)</b>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="ocean-save-primary-btn"
+                      onClick={handleDownload}
+                    >
+                      📸 Simpan ke Galeri HP (Full HD)
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* 4. Streamlined Export Footer */}
-            <div className="inspector-footer">
-              <div className="footer-top">
-                <div className="seg seg-compact">
-                  <button className={format === 'jpeg' ? 'on' : ''} onClick={() => setFormat('jpeg')}>JPG</button>
-                  <button className={format === 'webp' ? 'on' : ''} onClick={() => setFormat('webp')}>WEBP</button>
-                </div>
+            {/* Quick Sticky Save Action Bar when in LUTs, AI, or Tune tab */}
+            {activeTab !== 'export' && active && (
+              <div className="ocean-deck-bottom-bar">
+                <button
+                  type="button"
+                  className="ocean-quick-save-btn"
+                  onClick={handleDownload}
+                >
+                  📸 Simpan ke Galeri (Full HD)
+                </button>
               </div>
-              <a className="btn btn-solid btn-block footer-dl-btn" href={exportUrl || '#'} onClick={handleDownload} download>
-                Simpan ke Galeri HP (Full HD)
-              </a>
-            </div>
+            )}
           </aside>
         </div>
       )}
 
+      {/* Toast Notifications & Alerts */}
       {error && assets.length > 0 && (
         <div className="toast err" role="alert">
           {error}

@@ -3592,5 +3592,800 @@ input[type='range'].hsl-range-track::-webkit-slider-thumb {
   }
 }
 
+/* ==========================================================================
+   OCEAN EDIT - PROFESSIONAL MOBILE-FIRST UNDERWATER SUITE STYLES
+   ========================================================================== */
+
+.ocean-app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #03080d;
+  color: #eaf4f8;
+  font-family: var(--body);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 1. Header Bar */
+.ocean-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 8px;
+  background: rgba(3, 8, 13, 0.95);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 40;
+  gap: 12px;
+}
+
+.ocean-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ocean-brand-icon {
+  font-size: 20px;
+  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.6));
+}
+
+.ocean-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.ocean-brand-text b {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+}
+
+.ocean-demo-tag {
+  font-size: 9px;
+  font-weight: 700;
+  color: #00d4ff;
+  letter-spacing: 0.08em;
+}
+
+.ocean-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ocean-view-selector {
+  display: flex;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.ocean-view-selector button {
+  padding: 5px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8da4b0;
+  transition: all 0.15s ease;
+}
+
+.ocean-view-selector button.on {
+  background: #00d4ff;
+  color: #02090e;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
+}
+
+.ocean-icon-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e0eef5;
+  font-size: 16px;
+  transition: all 0.15s ease;
+}
+
+.ocean-icon-btn:hover {
+  background: rgba(0, 212, 255, 0.15);
+  border-color: #00d4ff;
+}
+
+.ocean-add-btn {
+  padding: 6px 14px;
+  background: rgba(0, 212, 255, 0.15);
+  border: 1px solid #00d4ff;
+  color: #00d4ff;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.ocean-add-btn:hover {
+  background: #00d4ff;
+  color: #02090e;
+}
+
+/* 2. Empty Upload View */
+.ocean-empty-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.ocean-upload-card {
+  width: 100%;
+  max-width: 480px;
+  padding: 36px 24px;
+  background: linear-gradient(180deg, rgba(8, 24, 38, 0.8) 0%, rgba(3, 11, 18, 0.95) 100%);
+  border: 1px dashed rgba(0, 212, 255, 0.35);
+  border-radius: 20px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.25s ease;
+}
+
+.ocean-upload-card:hover,
+.ocean-upload-card.drag-on {
+  border-color: #00d4ff;
+  transform: translateY(-2px);
+  box-shadow: 0 20px 60px rgba(0, 212, 255, 0.2);
+}
+
+.ocean-upload-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: rgba(0, 212, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00d4ff;
+}
+
+.ocean-upload-card h1 {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+  color: #ffffff;
+}
+
+.ocean-empty-desc {
+  font-size: 14px;
+  color: #8da4b0;
+  line-height: 1.5;
+  margin: 0 0 22px;
+}
+
+.ocean-btn-hero {
+  display: inline-block;
+  padding: 14px 28px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: #02090e;
+  font-weight: 800;
+  font-size: 15px;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 212, 255, 0.4);
+  transition: all 0.2s ease;
+}
+
+.ocean-btn-hero:hover {
+  transform: scale(1.03);
+  box-shadow: 0 12px 32px rgba(0, 212, 255, 0.6);
+}
+
+.ocean-feature-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.ocean-feature-tags span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #38d6c4;
+  background: rgba(56, 214, 196, 0.1);
+  border: 1px solid rgba(56, 214, 196, 0.25);
+  padding: 5px 10px;
+  border-radius: 12px;
+}
+
+/* 3. Editor Layout (Desktop vs Mobile) */
+.ocean-editor-layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+@media (min-width: 900px) {
+  .ocean-editor-layout {
+    flex-direction: row;
+  }
+
+  .ocean-viewport {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #02070c;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .ocean-deck {
+    width: 440px;
+    background: #040d16;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 899px) {
+  .ocean-editor-layout {
+    flex-direction: column;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ocean-viewport {
+    width: 100%;
+    flex-shrink: 0;
+  }
+
+  .ocean-deck {
+    width: 100%;
+    background: #040d16;
+    border-top: 1px solid rgba(0, 212, 255, 0.18);
+  }
+}
+
+/* 4. Stage & Viewport */
+.ocean-viewport {
+  position: relative;
+}
+
+.ocean-stage-frame {
+  position: relative;
+  width: 100%;
+  height: 52vh;
+  min-height: 280px;
+  background: #010408;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (min-width: 900px) {
+  .ocean-stage-frame {
+    height: calc(100vh - 140px);
+  }
+}
+
+.ocean-mini-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(3, 12, 20, 0.85);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  padding: 5px 11px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #00d4ff;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.ocean-spin {
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(0, 212, 255, 0.25);
+  border-top-color: #00d4ff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Filmstrip */
+.ocean-filmstrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(2, 6, 10, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ocean-strip-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 62px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ocean-strip-thumb.active {
+  opacity: 1;
+  border-color: #00d4ff;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
+}
+
+.ocean-strip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ocean-strip-add {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 48px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: #00d4ff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* 5. Ocean Deck Navigation Tabs */
+.ocean-deck-tabs {
+  display: flex;
+  background: #030a11;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 4px 6px;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 25;
+}
+
+.ocean-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  color: #7b94a2;
+  font-weight: 700;
+  font-size: 11px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.ocean-tab .tab-icon {
+  font-size: 16px;
+}
+
+.ocean-tab.active {
+  background: rgba(0, 212, 255, 0.12);
+  color: #00d4ff;
+}
+
+/* Deck Content & Panes */
+.ocean-deck-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px 20px;
+}
+
+.ocean-tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ocean-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.ocean-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.ocean-section-header span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #00d4ff;
+  text-transform: uppercase;
+}
+
+.ocean-section-header small {
+  font-size: 11px;
+  color: #738c9a;
+}
+
+/* 6. Ocean LUT Cards */
+.ocean-lut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ocean-lut-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.ocean-lut-card:hover {
+  background: rgba(0, 212, 255, 0.06);
+  border-color: rgba(0, 212, 255, 0.25);
+}
+
+.ocean-lut-card.active {
+  background: rgba(0, 212, 255, 0.12);
+  border-color: #00d4ff;
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.2);
+}
+
+.ocean-lut-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1.5px solid #00d4ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.ocean-lut-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocean-lut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ocean-lut-name {
+  font-weight: 800;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.ocean-lut-active-tag {
+  font-size: 9px;
+  font-weight: 800;
+  color: #02090e;
+  background: #00d4ff;
+  padding: 2px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.06em;
+}
+
+.ocean-lut-tag {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #38d6c4;
+  margin-top: 1px;
+}
+
+.ocean-lut-desc {
+  font-size: 11px;
+  color: #8da4b0;
+  margin: 3px 0 0;
+  line-height: 1.35;
+}
+
+/* 7. Diagnostic & Spectrum Card */
+.ocean-spec-card {
+  background: rgba(0, 212, 255, 0.04);
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.ocean-spec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #8da4b0;
+}
+
+.ocean-tag-cyan {
+  background: rgba(0, 212, 255, 0.15);
+  color: #00d4ff;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+/* 8. AI Hero & Sliders */
+.ocean-ai-card {
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.08) 0%, rgba(56, 214, 196, 0.04) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.ocean-ai-hero-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: #02090e;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.35);
+  transition: all 0.18s ease;
+}
+
+.ocean-ai-hero-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 212, 255, 0.5);
+}
+
+.ocean-ai-hero-btn:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.ai-spark {
+  font-size: 20px;
+}
+
+.ai-btn-text b {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ai-btn-text small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.ocean-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 9. Tune / Manual Grading */
+.ocean-tune-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.ocean-filter-pill {
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #8da4b0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ocean-filter-pill.on {
+  background: #00d4ff;
+  color: #02090e;
+  border-color: #00d4ff;
+}
+
+.ocean-tune-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ocean-group-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.ocean-group-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #00d4ff;
+  text-transform: uppercase;
+}
+
+/* 10. Export Pane */
+.ocean-export-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 16px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ocean-export-box h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.ocean-export-box p {
+  margin: 0;
+  font-size: 12px;
+  color: #8da4b0;
+  line-height: 1.45;
+}
+
+.ocean-format-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.format-option {
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.format-option.active {
+  background: rgba(0, 212, 255, 0.12);
+  border-color: #00d4ff;
+}
+
+.format-option b {
+  display: block;
+  font-size: 13px;
+  color: #ffffff;
+}
+
+.format-option small {
+  display: block;
+  font-size: 10px;
+  color: #7b94a2;
+}
+
+.ocean-spec-table {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spec-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.spec-item span {
+  color: #7b94a2;
+}
+
+.spec-item b {
+  color: #38d6c4;
+}
+
+.ocean-save-primary-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: #02090e;
+  font-size: 15px;
+  font-weight: 800;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 212, 255, 0.4);
+  transition: all 0.2s ease;
+}
+
+.ocean-save-primary-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(0, 212, 255, 0.6);
+}
+
+/* 11. Quick Bottom Save Bar */
+.ocean-deck-bottom-bar {
+  position: sticky;
+  bottom: 0;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(3, 10, 17, 0.96);
+  border-top: 1px solid rgba(0, 212, 255, 0.25);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 30;
+}
+
+.ocean-quick-save-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: #02090e;
+  font-size: 14px;
+  font-weight: 800;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.35);
+  transition: all 0.18s ease;
+}
+
+.ocean-quick-save-btn:hover {
+  box-shadow: 0 6px 20px rgba(0, 212, 255, 0.55);
+}
+
+
 
 
