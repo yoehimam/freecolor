@@ -3466,5 +3466,57 @@ input[type='range'].hsl-range-track::-webkit-slider-thumb {
   }
 }
 
+/* --------------------------------------------------------------------------
+   Realme 5i Specific Hardware & Display Tuning (Snapdragon 665 / Adreno 610)
+   Display: 720x1600 (20:9 Tall Screen), Mini-Drop Notch, 3GB/4GB RAM
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .stage-frame {
+    height: 38vh !important;
+    min-height: 240px !important;
+    max-height: 360px !important;
+    transform: translateZ(0);
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .ed-rail {
+    transform: translateZ(0);
+  }
+
+  .inspector-scroll {
+    padding-bottom: 96px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Compact preset cards that fit 2 columns perfectly on 360px-390px width */
+  .preset-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 7px !important;
+  }
+
+  .preset-card {
+    padding: 9px 10px !important;
+  }
+
+  .preset-card b {
+    font-size: 12px !important;
+  }
+
+  .preset-card small {
+    font-size: 9px !important;
+  }
+
+  /* Floating Sticky Save Bar tuned for Realme 5i thumb reach */
+  .inspector-footer {
+    padding: 8px 12px calc(10px + var(--sab)) !important;
+  }
+
+  .footer-dl-btn {
+    padding: 12px 18px !important;
+    font-size: 14px !important;
+  }
+}
+
 
 
