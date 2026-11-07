@@ -1514,8 +1514,8 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
           const tr = trMid + (trSurf - trMid) * surfMix;
           const tg = tgMid + (tgSurf - tgMid) * surfMix;
           const tb = tbMid + (tbSurf - tbMid) * surfMix;
-          const tCap = isGreenWater ? 0.16 : 0.42;
-          const tMul = isGreenWater ? 0.30 : 0.68;
+          const tCap = isGreenWater ? 0.14 : 0.22;
+          const tMul = isGreenWater ? 0.25 : 0.40;
           const t = Math.min(tCap, wtint * mask * tMul);
           r += (tr - r) * t;
           g += (tg - g) * t;

@@ -81,7 +81,7 @@ const hueGradient = 'linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)';
 
 /* ------------------------------------------------------------ small parts */
 
-function Slider({ item, value, onChange, onReset }) {
+function Slider({ item, value, onChange, onReset, onCommit }) {
   const { label, min, max, unit = '', hint, hue } = item;
   const pct = ((value - min) / (max - min)) * 100;
   const zero = min < 0 ? ((0 - min) / (max - min)) * 100 : 0;
@@ -103,6 +103,9 @@ function Slider({ item, value, onChange, onReset }) {
         className={hue ? 'sl-hue' : ''}
         style={hue ? { background: hueGradient } : { '--l': `${l}%`, '--r': `${r}%` }}
         onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onTouchEnd={onCommit}
+        onKeyUp={onCommit}
         onDoubleClick={onReset}
         aria-label={label}
       />
@@ -119,6 +122,10 @@ function Icon({ name }) {
     case 'pick': return <svg {...common}><path d="M14 4l6 6-3 3-6-6zM11 7L4 14v4h4l7-7" /></svg>;
     case 'close': return <svg {...common}><path d="M6 6l12 12M18 6L6 18" /></svg>;
     case 'wave': return <svg {...common}><path d="M2 9c2.5-2 5-2 7.5 0s5 2 7.5 0 3-1.5 5-1M2 15c2.5-2 5-2 7.5 0s5 2 7.5 0 3-1.5 5-1" /></svg>;
+    case 'undo': return <svg {...common}><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11" /></svg>;
+    case 'redo': return <svg {...common}><path d="M15 14l5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13" /></svg>;
+    case 'rotate': return <svg {...common}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 7" /><path d="M21 3v4h-4" /></svg>;
+    case 'fullscreen': return <svg {...common}><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" /></svg>;
     default: return null;
   }
 }
@@ -163,6 +170,10 @@ export default function Editor() {
   const [curveCh, setCurveCh] = useState('m');
   const [aiOpen, setAiOpen] = useState(false);
 
+  // History stack for Undo / Redo
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
   const inputRef = useRef(null);
   const seq = useRef(0);
   const dragDepth = useRef(0);
@@ -190,6 +201,15 @@ export default function Editor() {
         setPickMode(false);
         setAiOpen(false);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        redo();
+      }
     };
     const up = (e) => e.code === 'Space' && setHoldBefore(false);
     window.addEventListener('keydown', down);
@@ -198,7 +218,7 @@ export default function Editor() {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [active]);
+  }, [active, history, historyIndex]);
 
   /* upload */
   const uploadFiles = useCallback(async (fileList) => {
@@ -214,6 +234,7 @@ export default function Editor() {
     let failed = 0;
     for (let i = 0; i < files.length; i++) {
       try {
+        setUpload({ done: i, total: files.length });
         const res = await api.upload(files[i]);
         setAssets((prev) => [...prev, { ...res.asset, condition: res.condition }]);
         if (!firstId) firstId = res.asset.id;
@@ -242,6 +263,8 @@ export default function Editor() {
       setParams(null);
       setBaseParams(null);
       setAfterUrl(null);
+      setHistory([]);
+      setHistoryIndex(-1);
       return;
     }
     const initial = { ...GRADE_DEFAULTS, ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
@@ -250,16 +273,18 @@ export default function Editor() {
     setIntensity(100);
     setAfterUrl(null);
     setPickMode(false);
+    setHistory([initial]);
+    setHistoryIndex(0);
   }, [activeId]);
 
-  /* render: debounced, cancel-safe. Shows only a small badge, never a blocking overlay. */
+  /* render: debounced, cancel-safe. Completely silent during slider moves — zero busy spinners. */
   useEffect(() => {
     if (!activeId || !params) return undefined;
     const ticket = ++seq.current;
     setRendering(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await api.render(activeId, params, 1600);
+        const res = await api.render(activeId, params);
         if (ticket !== seq.current) return;
         setAfterUrl(res.url);
         setRenderMs(res.ms);
@@ -269,11 +294,41 @@ export default function Editor() {
       } finally {
         if (ticket === seq.current) setRendering(false);
       }
-    }, 120);
+    }, 110);
     return () => clearTimeout(timer);
   }, [activeId, params]);
 
-  /* ---- parameter helpers ---- */
+  /* ---- parameter helpers & undo/redo tracking ---- */
+  const commitParams = useCallback((newParams = params) => {
+    if (!newParams) return;
+    setHistory((prev) => {
+      const truncated = prev.slice(0, historyIndex + 1);
+      if (truncated.length >= 35) truncated.shift();
+      return [...truncated, { ...newParams }];
+    });
+    setHistoryIndex((prev) => Math.min(34, prev + 1));
+  }, [params, historyIndex]);
+
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      const nextIdx = historyIndex - 1;
+      setHistoryIndex(nextIdx);
+      const prev = history[nextIdx];
+      setParams(prev);
+      setBaseParams(prev);
+    }
+  }, [history, historyIndex]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const nextIdx = historyIndex + 1;
+      setHistoryIndex(nextIdx);
+      const next = history[nextIdx];
+      setParams(next);
+      setBaseParams(next);
+    }
+  }, [history, historyIndex]);
+
   const setKey = (key, v) => {
     setParams((p) => ({ ...p, [key]: v }));
     setBaseParams((p) => (p ? { ...p, [key]: v } : p));
@@ -302,6 +357,7 @@ export default function Editor() {
     setParams(next);
     setBaseParams(next);
     setIntensity(100);
+    commitParams(next);
     setNotice('Auto Grading diterapkan (analisa lokal, tanpa AI).');
   }
 
@@ -313,6 +369,7 @@ export default function Editor() {
     const scaled = { ...next };
     for (const k of RESTORATION_KEYS) if (next[k] !== undefined) scaled[k] = Math.round(next[k] * f);
     setParams(scaled);
+    commitParams(scaled);
     setNotice(`Look "${LOOKS.find((l) => l.id === id)?.name || id}" diterapkan.`);
   }
 
@@ -322,6 +379,7 @@ export default function Editor() {
     setParams(next);
     setBaseParams(next);
     setIntensity(100);
+    commitParams(next);
     setNotice('Semua pengaturan dikembalikan.');
   }
 
@@ -333,6 +391,29 @@ export default function Editor() {
       return rest;
     });
   }, [activeId]);
+
+  /* ---- rotate 90 degrees ---- */
+  async function handleRotate() {
+    if (!active) return;
+    try {
+      setNotice('Memutar foto 90°…');
+      const res = await api.rotate(active.id, 90);
+      setAssets((prev) => prev.map((a) => (a.id === active.id ? { ...res.asset, condition: res.condition } : a)));
+      setAfterUrl(null);
+      setNotice('Foto berhasil diputar.');
+    } catch (err) {
+      setError('Gagal memutar foto: ' + (err.message || err));
+    }
+  }
+
+  /* ---- fullscreen toggle ---- */
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
 
   /* ---- white-balance eyedropper ---- */
   async function onPick(e) {
@@ -346,7 +427,10 @@ export default function Editor() {
       const oy = (rect.height - nh * scale) / 2;
       const px = Math.round((e.clientX - rect.left - ox) / scale);
       const py = Math.round((e.clientY - rect.top - oy) / scale);
-      if (px < 0 || py < 0 || px >= nw || py >= nh) return;
+      if (px < 0 || py < 0 || px >= nw || py >= nh) {
+        setNotice('Ketuk di dalam area gambar.');
+        return;
+      }
       const c = document.createElement('canvas');
       c.width = nw;
       c.height = nh;
@@ -358,7 +442,10 @@ export default function Editor() {
       let r = 0, g = 0, b = 0;
       const cnt = d.length / 4;
       for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
-      setMany(wbFromPick([r / cnt, g / cnt, b / cnt], params));
+      const newWb = wbFromPick([r / cnt, g / cnt, b / cnt], params);
+      const updated = { ...params, ...newWb };
+      setMany(newWb);
+      commitParams(updated);
       setPickMode(false);
       setNotice('Keseimbangan putih diatur dari titik yang dipilih.');
     } catch {
@@ -400,7 +487,17 @@ export default function Editor() {
   /* ------------------------------------------------------------ panels */
   const renderSliders = (items) =>
     items.map((it) => (
-      <Slider key={it.key} item={it} value={val(it.key)} onChange={(v) => setKey(it.key, v)} onReset={() => resetKey(it.key)} />
+      <Slider
+        key={it.key}
+        item={it}
+        value={val(it.key)}
+        onChange={(v) => setKey(it.key, v)}
+        onReset={() => {
+          resetKey(it.key);
+          commitParams({ ...params, [it.key]: active?.auto?.[it.key] ?? GRADE_DEFAULTS[it.key] ?? 0 });
+        }}
+        onCommit={() => commitParams(params)}
+      />
     ));
 
   const band = HSL_BANDS.find((b) => b.id === hslBand);
@@ -423,27 +520,67 @@ export default function Editor() {
         </div>
         <div className="bar-actions">
           {active && (
-            <div className="seg" role="group" aria-label="Mode tampilan">
-              <button className={mode === 'split' ? 'on' : ''} onClick={() => setViewMode('split')}>Belah</button>
-              <button className={mode === 'after' ? 'on' : ''} onClick={() => setViewMode('after')}>Hasil</button>
-              <button
-                className={mode === 'before' ? 'on' : ''}
-                onPointerDown={() => setHoldBefore(true)}
-                onPointerUp={() => setHoldBefore(false)}
-                onPointerLeave={() => setHoldBefore(false)}
-                title="Tahan untuk melihat foto asli"
-              >Asli</button>
-            </div>
+            <>
+              <div className="seg" role="group" aria-label="Mode tampilan">
+                <button className={mode === 'split' ? 'on' : ''} onClick={() => setViewMode('split')}>Belah</button>
+                <button className={mode === 'after' ? 'on' : ''} onClick={() => setViewMode('after')}>Hasil</button>
+                <button
+                  className={mode === 'before' ? 'on' : ''}
+                  onPointerDown={() => setHoldBefore(true)}
+                  onPointerUp={() => setHoldBefore(false)}
+                  onPointerLeave={() => setHoldBefore(false)}
+                  title="Tahan untuk melihat foto asli"
+                >Asli</button>
+              </div>
+
+              <div className="history-group">
+                <button
+                  className="icon-btn"
+                  onClick={undo}
+                  disabled={historyIndex <= 0}
+                  title="Urungkan (Undo)"
+                  aria-label="Undo"
+                >
+                  <Icon name="undo" />
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={redo}
+                  disabled={historyIndex >= history.length - 1}
+                  title="Ulangi (Redo)"
+                  aria-label="Redo"
+                >
+                  <Icon name="redo" />
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={handleRotate}
+                  title="Putar 90°"
+                  aria-label="Putar 90 derajat"
+                >
+                  <Icon name="rotate" />
+                </button>
+                <button
+                  className="icon-btn hide-sm"
+                  onClick={toggleFullscreen}
+                  title="Layar Penuh"
+                  aria-label="Layar penuh"
+                >
+                  <Icon name="fullscreen" />
+                </button>
+              </div>
+            </>
           )}
+
           <button className="btn btn-soft" onClick={() => setAiOpen(true)} title="Asisten AI (opsional, butuh API key sendiri)">
             <Icon name="sparkle" /><span className="hide-sm">AI</span>
           </button>
-          <button className="btn btn-soft" onClick={() => inputRef.current?.click()}>
+          <button className="btn btn-soft" onClick={() => inputRef.current?.click()} title="Tambah foto">
             <Icon name="plus" /><span className="hide-sm">Foto</span>
           </button>
           {active && (
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              <Icon name="save" /><span className="hide-sm">{saving ? 'Menyimpan…' : 'Simpan'}</span>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving} title="Simpan Full HD">
+              <Icon name="save" /><span>{saving ? 'Menyimpan…' : 'Simpan'}</span>
             </button>
           )}
         </div>
@@ -483,20 +620,30 @@ export default function Editor() {
               )}
               {pickMode && (
                 <div className="pick-layer" onClick={onPick} role="button" aria-label="Pilih titik netral">
-                  <span className="pick-hint">Ketuk area yang seharusnya putih / abu-abu (pasir, alat selam)</span>
+                  <div className="pick-banner">
+                    <span className="pick-hint">Ketuk area yang seharusnya putih / abu-abu (pasir, alat selam)</span>
+                    <button
+                      className="btn btn-soft btn-cancel-pick"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPickMode(false);
+                      }}
+                    >
+                      Batal
+                    </button>
+                  </div>
                 </div>
               )}
-              {rendering && !upload && <div className="badge-busy"><i className="spin" />Memperbarui</div>}
-              {renderMs != null && !rendering && <div className="badge-ms">{renderMs} ms</div>}
+              {renderMs != null && <div className="badge-ms">{renderMs} ms</div>}
               {upload && (
                 <div className="overlay">
                   <div className="card-progress">
                     <i className="spin spin-lg" />
                     <div>
-                      <b>Membaca foto {Math.min(upload.done + 1, upload.total)} dari {upload.total}</b>
-                      <small>Mengukur spektrum warna & menentukan Auto Grading</small>
+                      <b>Membuka foto {Math.min(upload.done + 1, upload.total)} dari {upload.total}</b>
+                      <small>Mengukur spektrum warna & menentukan Auto Grading…</small>
                     </div>
-                    <div className="track"><div style={{ width: `${(upload.done / upload.total) * 100}%` }} /></div>
+                    <div className="track"><div style={{ width: `${Math.round((upload.done / upload.total) * 100)}%` }} /></div>
                   </div>
                 </div>
               )}
@@ -504,9 +651,26 @@ export default function Editor() {
 
             <div className="strip">
               {assets.map((a) => (
-                <div key={a.id} className={`thumb ${a.id === activeId ? 'on' : ''}`} onClick={() => setActiveId(a.id)} title={a.name} role="button" tabIndex={0}>
+                <div
+                  key={a.id}
+                  className={`thumb ${a.id === activeId ? 'on' : ''}`}
+                  onClick={() => setActiveId(a.id)}
+                  title={a.name}
+                  role="button"
+                  tabIndex={0}
+                >
                   <img src={a.thumbUrl} alt={a.name} />
-                  <button className="thumb-x" aria-label={`Hapus ${a.name}`} title="Hapus foto" onClick={(e) => { e.stopPropagation(); removeAsset(a.id); }}>×</button>
+                  <button
+                    className="thumb-x"
+                    aria-label={`Hapus ${a.name}`}
+                    title="Tutup / Hapus foto"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeAsset(a.id);
+                    }}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
               <button className="thumb-add" onClick={() => inputRef.current?.click()} aria-label="Tambah foto">+</button>
@@ -534,6 +698,7 @@ export default function Editor() {
                       value={intensity}
                       onChange={(v) => scaleIntensity(v)}
                       onReset={() => scaleIntensity(100)}
+                      onCommit={() => commitParams(params)}
                     />
                   </div>
                   <h3 className="h">Look Bawah Air</h3>
@@ -566,7 +731,11 @@ export default function Editor() {
                     <div className="row-between">
                       <h3 className="h h-tight">Keseimbangan Putih</h3>
                       {(val('wbR') !== 1 || val('wbG') !== 1 || val('wbB') !== 1) && (
-                        <button className="link" onClick={() => setMany({ wbR: 1, wbG: 1, wbB: 1 })}>Reset</button>
+                        <button className="link" onClick={() => {
+                          const resetWb = { wbR: 1, wbG: 1, wbB: 1 };
+                          setMany(resetWb);
+                          commitParams({ ...params, ...resetWb });
+                        }}>Reset</button>
                       )}
                     </div>
                     <button className={`btn btn-block ${pickMode ? 'btn-primary' : 'btn-soft'}`} onClick={() => setPickMode((v) => !v)}>
@@ -599,11 +768,15 @@ export default function Editor() {
                     ))}
                   </div>
                   <div className="group">
-                    <Slider item={S(`hsl_${hslBand}_h`, `Rona ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_h`)} onChange={(v) => setKey(`hsl_${hslBand}_h`, v)} onReset={() => setKey(`hsl_${hslBand}_h`, 0)} />
-                    <Slider item={S(`hsl_${hslBand}_s`, `Saturasi ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_s`)} onChange={(v) => setKey(`hsl_${hslBand}_s`, v)} onReset={() => setKey(`hsl_${hslBand}_s`, 0)} />
-                    <Slider item={S(`hsl_${hslBand}_l`, `Luminans ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_l`)} onChange={(v) => setKey(`hsl_${hslBand}_l`, v)} onReset={() => setKey(`hsl_${hslBand}_l`, 0)} />
+                    <Slider item={S(`hsl_${hslBand}_h`, `Rona ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_h`)} onChange={(v) => setKey(`hsl_${hslBand}_h`, v)} onReset={() => setKey(`hsl_${hslBand}_h`, 0)} onCommit={() => commitParams(params)} />
+                    <Slider item={S(`hsl_${hslBand}_s`, `Saturasi ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_s`)} onChange={(v) => setKey(`hsl_${hslBand}_s`, v)} onReset={() => setKey(`hsl_${hslBand}_s`, 0)} onCommit={() => commitParams(params)} />
+                    <Slider item={S(`hsl_${hslBand}_l`, `Luminans ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_l`)} onChange={(v) => setKey(`hsl_${hslBand}_l`, v)} onReset={() => setKey(`hsl_${hslBand}_l`, 0)} onCommit={() => commitParams(params)} />
                   </div>
-                  <button className="link" onClick={() => setMany(Object.fromEntries(HSL_BANDS.flatMap((b) => ['h', 's', 'l'].map((c) => [`hsl_${b.id}_${c}`, 0]))))}>Reset semua pita HSL</button>
+                  <button className="link" onClick={() => {
+                    const resetHsl = Object.fromEntries(HSL_BANDS.flatMap((b) => ['h', 's', 'l'].map((c) => [`hsl_${b.id}_${c}`, 0])));
+                    setMany(resetHsl);
+                    commitParams({ ...params, ...resetHsl });
+                  }}>Reset semua pita HSL</button>
                 </>
               )}
 
@@ -622,7 +795,7 @@ export default function Editor() {
                       {[25, 50, 75].map((g) => (
                         <g key={g} stroke="#dbe9f4" strokeWidth="0.6">
                           <line x1={g} y1="0" x2={g} y2="100" />
-                          <line x1="0" y1={g} x2="100" y2={g} />
+                          <line x1="0" y1={g} x2="100" y2="0" />
                         </g>
                       ))}
                       <line x1="0" y1="100" x2="100" y2="0" stroke="#b9cfe0" strokeDasharray="3 3" strokeWidth="0.8" />
@@ -637,11 +810,15 @@ export default function Editor() {
                     </svg>
                   </div>
                   <div className="group">
-                    <Slider item={S('s', 'Bayangan', -50, 50)} value={cv('s')} onChange={(v) => setKey(`cv_${curveCh}_s`, v)} onReset={() => setKey(`cv_${curveCh}_s`, 0)} />
-                    <Slider item={S('m', 'Tengah', -50, 50)} value={cv('m')} onChange={(v) => setKey(`cv_${curveCh}_m`, v)} onReset={() => setKey(`cv_${curveCh}_m`, 0)} />
-                    <Slider item={S('h', 'Sorotan', -50, 50)} value={cv('h')} onChange={(v) => setKey(`cv_${curveCh}_h`, v)} onReset={() => setKey(`cv_${curveCh}_h`, 0)} />
+                    <Slider item={S('s', 'Bayangan', -50, 50)} value={cv('s')} onChange={(v) => setKey(`cv_${curveCh}_s`, v)} onReset={() => setKey(`cv_${curveCh}_s`, 0)} onCommit={() => commitParams(params)} />
+                    <Slider item={S('m', 'Tengah', -50, 50)} value={cv('m')} onChange={(v) => setKey(`cv_${curveCh}_m`, v)} onReset={() => setKey(`cv_${curveCh}_m`, 0)} onCommit={() => commitParams(params)} />
+                    <Slider item={S('h', 'Sorotan', -50, 50)} value={cv('h')} onChange={(v) => setKey(`cv_${curveCh}_h`, v)} onReset={() => setKey(`cv_${curveCh}_h`, 0)} onCommit={() => commitParams(params)} />
                   </div>
-                  <button className="link" onClick={() => setMany({ [`cv_${curveCh}_s`]: 0, [`cv_${curveCh}_m`]: 0, [`cv_${curveCh}_h`]: 0 })}>Reset kurva {cvCh.label}</button>
+                  <button className="link" onClick={() => {
+                    const resetCv = { [`cv_${curveCh}_s`]: 0, [`cv_${curveCh}_m`]: 0, [`cv_${curveCh}_h`]: 0 };
+                    setMany(resetCv);
+                    commitParams({ ...params, ...resetCv });
+                  }}>Reset kurva {cvCh.label}</button>
                 </>
               )}
 

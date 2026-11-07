@@ -58,37 +58,53 @@ public class FreeColorGalleryPlugin extends Plugin {
             OutputStream fos = null;
             Uri imageUri = null;
             File savedFile = null;
+            boolean savedViaMediaStore = false;
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+ (API 29+): MediaStore Scoped Storage directly into Pictures/FreeColor
-                ContentResolver resolver = getContext().getContentResolver();
-                ContentValues contentValues = new ContentValues();
-                contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                contentValues.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
-                // Essential date fields so phone gallery immediately displays it on top of "Photos" / "Recents"
-                contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
-                contentValues.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
-                contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
-                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                try {
+                    // Android 10+ (API 29+): MediaStore Scoped Storage directly into Pictures/FreeColor
+                    ContentResolver resolver = getContext().getContentResolver();
+                    ContentValues contentValues = new ContentValues();
+                    contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                    contentValues.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+                    contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
+                    // Essential date fields so phone gallery immediately displays it on top of "Photos" / "Recents"
+                    contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+                    contentValues.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
+                    contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
-                imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
-                if (imageUri != null) {
-                    fos = resolver.openOutputStream(imageUri);
-                    if (fos != null) {
-                        fos.write(decoded);
-                        fos.flush();
-                        fos.close();
+                    imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+                    if (imageUri != null) {
+                        fos = resolver.openOutputStream(imageUri);
+                        if (fos != null) {
+                            fos.write(decoded);
+                            fos.flush();
+                            fos.close();
+                            fos = null;
+                        }
+                        contentValues.clear();
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                        resolver.update(imageUri, contentValues, null, null);
+
+                        try {
+                            resolver.notifyChange(imageUri, null);
+                        } catch (Throwable ignored) {}
+
+                        try {
+                            Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, imageUri);
+                            getContext().sendBroadcast(scanIntent);
+                        } catch (Throwable ignored) {}
+
+                        savedViaMediaStore = true;
                     }
-                    contentValues.clear();
-                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                    resolver.update(imageUri, contentValues, null, null);
-                } else {
-                    call.reject("Gagal membuat entri di MediaStore Android");
-                    return;
+                } catch (Exception qEx) {
+                    savedViaMediaStore = false;
                 }
-            } else {
-                // Android 9 and below: Direct public Pictures/FreeColor directory
+            }
+
+            // Fallback for Android 9 or if MediaStore insert failed
+            if (!savedViaMediaStore) {
                 File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
                 File freeColorDir = new File(picturesDir, "FreeColor");
                 if (!freeColorDir.exists()) {
@@ -100,6 +116,7 @@ public class FreeColorGalleryPlugin extends Plugin {
                 fos.write(decoded);
                 fos.flush();
                 fos.close();
+                fos = null;
 
                 // Force MediaScanner to broadcast to phone Gallery immediately
                 MediaScannerConnection.scanFile(
@@ -108,6 +125,12 @@ public class FreeColorGalleryPlugin extends Plugin {
                     new String[]{mimeType},
                     null
                 );
+
+                try {
+                    Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+                    scanIntent.setData(Uri.fromFile(savedFile));
+                    getContext().sendBroadcast(scanIntent);
+                } catch (Throwable ignored) {}
             }
 
             JSObject result = new JSObject();

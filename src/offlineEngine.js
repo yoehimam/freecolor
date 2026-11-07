@@ -6,6 +6,9 @@ import { measure, autoParams, describe } from './engine/measure.js';
 import { processImage } from './engine/pipeline.js';
 import { PRESETS } from './engine/presets.js';
 import { applyGrade } from './engine/grade.js';
+import { registerPlugin, Capacitor } from '@capacitor/core';
+
+const FreeColorGallery = registerPlugin('FreeColorGallery');
 
 // Optimal display and processing thresholds tailored for Realme 5i hardware
 const PREVIEW_MAX_EDGE = 1080; // 1080px is retina-sharp on 720p screen, renders in ~120ms with zero lag
@@ -19,7 +22,7 @@ let idCounter = 1;
  * Checks if the current environment is standalone offline (Capacitor Native APK or no server reachable).
  */
 export function isNativeApp() {
-  return typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform());
+  return typeof window !== 'undefined' && Capacitor.isNativePlatform();
 }
 
 /**
@@ -129,12 +132,13 @@ export const offlineEngine = {
     );
     applyGrade(res.data, srcData.width, srcData.height, params);
 
-    // Put rendered pixels into canvas
+    // Put rendered pixels into canvas (safe buffer offset)
     const canvas = document.createElement('canvas');
     canvas.width = srcData.width;
     canvas.height = srcData.height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const outImgData = new ImageData(new Uint8ClampedArray(res.data.buffer), srcData.width, srcData.height);
+    const clampedBytes = new Uint8ClampedArray(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+    const outImgData = new ImageData(clampedBytes, srcData.width, srcData.height);
     ctx.putImageData(outImgData, 0, 0);
 
     const renderUrl = canvas.toDataURL('image/jpeg', 0.85);
@@ -175,10 +179,11 @@ export const offlineEngine = {
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const outImgData = new ImageData(new Uint8ClampedArray(res.data.buffer), width, height);
+    const clampedBytes = new Uint8ClampedArray(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+    const outImgData = new ImageData(clampedBytes, width, height);
     ctx.putImageData(outImgData, 0, 0);
 
-    // Ensure Full HD quality while strictly keeping file size <= 2MB
+    // Ensure Full HD quality while strictly keeping file size <= 2.0 MB
     let quality = 0.88;
     let base64Data = canvas.toDataURL(format, quality);
     // Estimate byte size from Base64 length: (len - header) * 3 / 4
@@ -186,9 +191,13 @@ export const offlineEngine = {
     let rawLen = commaIdx >= 0 ? base64Data.length - commaIdx - 1 : base64Data.length;
     let estimatedBytes = Math.round((rawLen * 3) / 4);
 
-    if (estimatedBytes > 1.95 * 1024 * 1024) {
-      quality = 0.78;
+    // Guaranteed <= 1.92 MB (strictly under 2MB on every device)
+    while (estimatedBytes > 1.92 * 1024 * 1024 && quality > 0.40) {
+      quality -= 0.08;
       base64Data = canvas.toDataURL(format, quality);
+      commaIdx = base64Data.indexOf(',');
+      rawLen = commaIdx >= 0 ? base64Data.length - commaIdx - 1 : base64Data.length;
+      estimatedBytes = Math.round((rawLen * 3) / 4);
     }
 
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
@@ -201,19 +210,18 @@ export const offlineEngine = {
     let gallerySaved = false;
     let galleryPath = '';
 
-    // Check if running inside native Android Capacitor app
-    const isCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform());
-
-    if (isCapacitor && window.Capacitor?.Plugins?.FreeColorGallery) {
+    // If running inside native Android app, save directly to phone Gallery (Pictures/FreeColor)
+    if (Capacitor.isNativePlatform()) {
       try {
-        const nativeRes = await window.Capacitor.Plugins.FreeColorGallery.saveImageToGallery({
+        const nativeRes = await FreeColorGallery.saveImageToGallery({
           base64: base64Data,
           filename
         });
         gallerySaved = Boolean(nativeRes?.success);
         galleryPath = nativeRes?.album || 'Pictures/FreeColor';
       } catch (err) {
-        console.warn('Gagal menyimpan via native gallery plugin:', err);
+        console.error('Gagal menyimpan via native gallery plugin:', err);
+        throw new Error('Gagal menyimpan ke galeri HP: ' + (err.message || err));
       }
     }
 
@@ -227,6 +235,53 @@ export const offlineEngine = {
       gallerySaved,
       galleryPath
     };
+  },
+
+  async rotatePhoto(assetId, degrees = 90) {
+    const record = assetStore.get(assetId);
+    if (!record) throw new Error('Foto tidak ditemukan.');
+    const img = record.origImg;
+    const oldW = img.naturalWidth || img.width;
+    const oldH = img.naturalHeight || img.height;
+
+    const rotCanvas = document.createElement('canvas');
+    if (degrees === 90 || degrees === 270) {
+      rotCanvas.width = oldH;
+      rotCanvas.height = oldW;
+    } else {
+      rotCanvas.width = oldW;
+      rotCanvas.height = oldH;
+    }
+    const rCtx = rotCanvas.getContext('2d');
+    rCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+    rCtx.rotate((degrees * Math.PI) / 180);
+    rCtx.drawImage(img, -oldW / 2, -oldH / 2);
+
+    const newOrigImg = new Image();
+    const newOrigUrl = rotCanvas.toDataURL('image/jpeg', 0.95);
+    await new Promise((res) => {
+      newOrigImg.onload = res;
+      newOrigImg.src = newOrigUrl;
+    });
+
+    const { imageData: viewImageData, width: viewW, height: viewH, canvas: viewCanvas } = await scaleImageToImageData(newOrigImg, PREVIEW_MAX_EDGE);
+    const viewUrl = viewCanvas.toDataURL('image/jpeg', 0.85);
+
+    const stats = measure(viewImageData.data, viewW, viewH, 4);
+    const auto = autoParams(stats);
+    const condition = describe(stats);
+
+    record.origImg = newOrigImg;
+    record.viewImageData = viewImageData;
+    record.asset.width = newOrigImg.width;
+    record.asset.height = newOrigImg.height;
+    record.asset.stats = stats;
+    record.asset.auto = auto;
+    record.asset.beforeUrl = viewUrl;
+    record.asset.thumbUrl = viewCanvas.toDataURL('image/jpeg', 0.65);
+    record.condition = condition;
+
+    return { asset: record.asset, condition };
   },
 
   removeAsset(assetId) {

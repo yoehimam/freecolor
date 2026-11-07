@@ -165,7 +165,7 @@ export function autoParams(s) {
   if (isDeepGreenFog) {
     // Foto yang FULL HIJAU / KERUH / HILANG WARNA MERAH TOTAL:
     return {
-      preset: 'freedive',
+      preset: 'super',
       redRestore: Math.round(clamp(44 + s.redDeficit * 28, 42, 60)),
       veil: Math.round(clamp(32 + s.hazeScore * 30, 30, 48)),
       attenuation: Math.round(clamp(26 + s.redDeficit * 22, 24, 44)),
@@ -207,7 +207,7 @@ export function autoParams(s) {
   const neutral = Math.round(clamp(16 + s.redDeficit * 14, 12, 26));
 
   return {
-    preset: isSamudra ? 'samudra' : 'alami',
+    preset: isSamudra ? 'freedive' : 'alami',
     redRestore,
     veil,
     attenuation,
