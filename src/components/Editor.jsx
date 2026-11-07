@@ -407,22 +407,27 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     if (active.id?.startsWith('local-') || api.isOffline?.()) {
       e.preventDefault();
       try {
-        setNotice('Menyimpan foto (target ≤ 2MB)...');
+        setNotice('Menyimpan ke Galeri HP (Full HD)...');
         const { offlineEngine } = await import('../offlineEngine.js');
         const res = await offlineEngine.exportHighRes(active.id, params, format === 'webp' ? 'image/webp' : 'image/jpeg');
-        const a = document.createElement('a');
-        a.href = res.url;
-        a.download = res.filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(res.url);
-        }, 2000);
-        const mb = (res.sizeBytes / (1024 * 1024)).toFixed(1);
-        setNotice(`Foto tersimpan bersih (${mb} MB)!`);
+
+        if (res.gallerySaved) {
+          setNotice('Foto berhasil tersimpan di Galeri HP (Album: FreeColor)!');
+        } else {
+          // Web browser download fallback
+          const a = document.createElement('a');
+          a.href = res.url;
+          a.download = res.filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(res.url);
+          }, 2000);
+          setNotice('Foto berhasil disimpan!');
+        }
       } catch (err) {
-        setError('Gagal ekspor: ' + err.message);
+        setError('Gagal menyimpan: ' + err.message);
       }
     }
   }
@@ -899,7 +904,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                 </div>
               </div>
               <a className="btn btn-solid btn-block footer-dl-btn" href={exportUrl || '#'} onClick={handleDownload} download>
-                Simpan Foto ({format.toUpperCase()} ≤ 2MB)
+                Simpan ke Galeri HP (Full HD)
               </a>
             </div>
           </aside>

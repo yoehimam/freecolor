@@ -153,12 +153,13 @@ export const offlineEngine = {
     const record = assetStore.get(assetId);
     if (!record) throw new Error('Foto tidak ditemukan.');
 
-    // Yield to event loop so Realme 5i UI can render loading notice without freezing
-    await new Promise((r) => setTimeout(r, 60));
+    // Yield to event loop so UI can immediately render "Menyimpan ke Galeri HP..." notice
+    await new Promise((r) => setTimeout(r, 80));
 
-    // Limit maximum edge to 1920px (Full HD):
-    // Tailored for Realme 5i Snapdragon 665: renders in ~400ms, consumes <30MB RAM, zero lag, file size strictly <= 2MB
-    const MAX_EDGE = EXPORT_MAX_EDGE;
+    // Full HD High Resolution (max edge 1920px):
+    // Universally compatible across all Android phones (from budget to flagship)
+    // Produces crisp high-definition photos that open reliably in any photo gallery
+    const MAX_EDGE = 1920;
     const { imageData: fullData, width, height } = await scaleImageToImageData(record.origImg, MAX_EDGE);
 
     const pixelCopy = new Uint8Array(fullData.data);
@@ -174,38 +175,44 @@ export const offlineEngine = {
     const outImgData = new ImageData(new Uint8ClampedArray(res.data.buffer), width, height);
     ctx.putImageData(outImgData, 0, 0);
 
-    // Strictly enforce file size <= 2.0 MB (2 * 1024 * 1024 bytes)
-    const MAX_BYTES = 2.0 * 1024 * 1024;
-    let quality = 0.85;
-    let blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+    const quality = 0.90; // High quality Full HD
+    const base64Data = canvas.toDataURL(format, quality);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
 
-    // Adaptive compression if file exceeds 2MB
-    let attempts = 0;
-    while (blob && blob.size > MAX_BYTES && quality > 0.40 && attempts < 5) {
-      attempts++;
-      quality -= 0.12;
-      blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
-    }
-
-    // Secondary fallback: downscale slightly if still over 2MB
-    if (blob && blob.size > MAX_BYTES) {
-      const scaleCanvas = document.createElement('canvas');
-      const sW = Math.round(width * 0.80);
-      const sH = Math.round(height * 0.80);
-      scaleCanvas.width = sW;
-      scaleCanvas.height = sH;
-      const sCtx = scaleCanvas.getContext('2d');
-      sCtx.drawImage(canvas, 0, 0, sW, sH);
-      blob = await new Promise((resolve) => scaleCanvas.toBlob(resolve, format, 0.78));
-    }
-
-    const downloadUrl = URL.createObjectURL(blob);
     const ext = format === 'image/webp' ? '.webp' : '.jpg';
     let rawName = record.asset.name || 'underwater';
     rawName = rawName.replace(/\.[^/.]+$/, '');
-    const filename = `freecolor-${rawName}${ext}`;
+    const filename = `FreeColor_${rawName}_${Date.now()}${ext}`;
 
-    return { blob, url: downloadUrl, filename, sizeBytes: blob ? blob.size : 0 };
+    let gallerySaved = false;
+    let galleryPath = '';
+
+    // Check if running inside native Android Capacitor app
+    const isCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform());
+
+    if (isCapacitor && window.Capacitor?.Plugins?.FreeColorGallery) {
+      try {
+        const nativeRes = await window.Capacitor.Plugins.FreeColorGallery.saveImageToGallery({
+          base64: base64Data,
+          filename
+        });
+        gallerySaved = Boolean(nativeRes?.success);
+        galleryPath = nativeRes?.album || 'Pictures/FreeColor';
+      } catch (err) {
+        console.warn('Gagal menyimpan via native gallery plugin:', err);
+      }
+    }
+
+    const downloadUrl = URL.createObjectURL(blob);
+    return {
+      blob,
+      url: downloadUrl,
+      base64Data,
+      filename,
+      sizeBytes: blob ? blob.size : 0,
+      gallerySaved,
+      galleryPath
+    };
   },
 
   getHealth() {
