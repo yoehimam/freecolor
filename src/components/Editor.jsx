@@ -1,256 +1,231 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Compare from './Compare.jsx';
 import { api } from '../api.js';
-import { PRESETS, OCEAN_LUTS } from '../engine/presets.js';
+import { PRESETS, LOOKS } from '../engine/presets.js';
+import { GRADE_DEFAULTS, CURVE_CHANNELS, curvePath, wbFromPick } from '../engine/grade.js';
+import { AI_MODELS, aiSettings, analyzePhoto, testKey } from '../ai.js';
+
+/* ------------------------------------------------------------------ data */
+
+const RESTORATION_KEYS = [
+  'redRestore', 'veil', 'attenuation', 'spotRemoval', 'waterLight', 'waterTint', 'skinTone', 'neutral',
+  'clarity', 'sharpen', 'vibrance', 'saturation', 'contrast', 'exposure', 'temperature', 'tint',
+  'shadows', 'highlight', 'whites', 'blacks',
+];
+
+const TABS = [
+  { id: 'look', label: 'Look' },
+  { id: 'warna', label: 'Warna' },
+  { id: 'cahaya', label: 'Cahaya' },
+  { id: 'hsl', label: 'HSL' },
+  { id: 'kurva', label: 'Kurva' },
+  { id: 'detail', label: 'Detail' },
+  { id: 'simpan', label: 'Simpan' },
+];
+
+const HSL_BANDS = [
+  { id: 'red', label: 'Merah', color: '#e5484d' },
+  { id: 'orange', label: 'Oranye', color: '#f08a24' },
+  { id: 'yellow', label: 'Kuning', color: '#e5b800' },
+  { id: 'green', label: 'Hijau', color: '#2ca56b' },
+  { id: 'cyan', label: 'Cyan', color: '#16b3c4' },
+  { id: 'blue', label: 'Biru', color: '#1d78e6' },
+  { id: 'purple', label: 'Ungu', color: '#7a5af0' },
+  { id: 'magenta', label: 'Magenta', color: '#d6409f' },
+];
+
+const S = (key, label, min, max, extra = {}) => ({ key, label, min, max, ...extra });
+
+const WARNA = [
+  S('temperature', 'Suhu (Temp)', -50, 50, { hint: 'Dingin (biru) ↔ hangat (kuning)' }),
+  S('tint', 'Corak (Tint)', -50, 50, { hint: 'Hijau ↔ magenta' }),
+  S('saturation', 'Saturasi', -50, 50),
+  S('vibrance', 'Vibrance', -50, 60, { hint: 'Naikkan warna lembut tanpa merusak kulit' }),
+];
+const PULIH = [
+  S('redRestore', 'Pulihkan Merah', 0, 100, { unit: '%', hint: 'Kembalikan spektrum merah yang hilang di dalam air' }),
+  S('attenuation', 'Kompensasi Kedalaman', 0, 100, { unit: '%' }),
+  S('waterTint', 'Warna Air', 0, 100, { unit: '%', hint: 'Arahkan air ke biru/toska alami' }),
+  S('waterLight', 'Cahaya Air', 0, 100, { unit: '%' }),
+  S('skinTone', 'Jaga Warna Kulit', 0, 100, { unit: '%' }),
+  S('neutral', 'Netralkan Pasir & Alat', 0, 100, { unit: '%' }),
+];
+const CAHAYA = [
+  S('exposure', 'Kecerahan', -50, 50),
+  S('contrast', 'Kontras', -50, 50),
+  S('highlight', 'Sorotan', -50, 50),
+  S('shadows', 'Bayangan', -50, 50),
+  S('whites', 'Putih', -50, 50),
+  S('blacks', 'Hitam', -50, 50),
+];
+const GRADASI = [
+  S('gradTop', 'Gradasi Atas (permukaan)', -50, 50, { hint: 'Redupkan / terangkan bagian atas foto' }),
+  S('gradBottom', 'Gradasi Bawah (dasar)', -50, 50, { hint: 'Redupkan / terangkan bagian bawah foto' }),
+];
+const DETAIL = [
+  S('sharpen', 'Pertajam', 0, 100),
+  S('clarity', 'Kejelasan', -30, 80),
+  S('veil', 'Kejernihan Air (Dehaze)', 0, 100, { unit: '%' }),
+  S('spotRemoval', 'Hapus Backscatter', 0, 100, { unit: '%', hint: 'Bersihkan partikel melayang (marine snow)' }),
+  S('fade', 'Pudar (Matte)', 0, 100),
+  S('vignette', 'Vinyet', -50, 80),
+];
+const SPLIT = [
+  S('splitShadowHue', 'Warna Bayangan', 0, 360, { hue: true }),
+  S('splitShadowAmt', 'Kekuatan Bayangan', 0, 100),
+  S('splitHighHue', 'Warna Sorotan', 0, 360, { hue: true }),
+  S('splitHighAmt', 'Kekuatan Sorotan', 0, 100),
+];
+
+const hueGradient = 'linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)';
+
+/* ------------------------------------------------------------ small parts */
+
+function Slider({ item, value, onChange, onReset }) {
+  const { label, min, max, unit = '', hint, hue } = item;
+  const pct = ((value - min) / (max - min)) * 100;
+  const zero = min < 0 ? ((0 - min) / (max - min)) * 100 : 0;
+  const l = hue ? 0 : Math.min(pct, zero);
+  const r = hue ? 0 : Math.max(pct, zero);
+  const shown = Math.round(value);
+  return (
+    <div className="sl" title={hint}>
+      <div className="sl-top">
+        <label>{label}</label>
+        <output>{min < 0 && shown > 0 ? `+${shown}` : shown}{unit}</output>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        className={hue ? 'sl-hue' : ''}
+        style={hue ? { background: hueGradient } : { '--l': `${l}%`, '--r': `${r}%` }}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={onReset}
+        aria-label={label}
+      />
+    </div>
+  );
+}
+
+function Icon({ name }) {
+  const common = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+  switch (name) {
+    case 'plus': return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case 'sparkle': return <svg {...common}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" /></svg>;
+    case 'save': return <svg {...common}><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" /></svg>;
+    case 'pick': return <svg {...common}><path d="M14 4l6 6-3 3-6-6zM11 7L4 14v4h4l7-7" /></svg>;
+    case 'close': return <svg {...common}><path d="M6 6l12 12M18 6L6 18" /></svg>;
+    case 'wave': return <svg {...common}><path d="M2 9c2.5-2 5-2 7.5 0s5 2 7.5 0 3-1.5 5-1M2 15c2.5-2 5-2 7.5 0s5 2 7.5 0 3-1.5 5-1" /></svg>;
+    default: return null;
+  }
+}
 
 function isSupportedImageFile(file) {
   if (!file) return false;
-  const mime = String(file.type || '').toLowerCase();
-  if (mime.startsWith('image/')) return true;
-  const name = String(file.name || '').toLowerCase();
-  return /\.(heic|heif|avif|jpe?g|png|webp|bmp|gif|tiff?)$/i.test(name);
+  if (String(file.type || '').toLowerCase().startsWith('image/')) return true;
+  return /\.(heic|heif|avif|jpe?g|png|webp|bmp|gif|tiff?)$/i.test(String(file.name || ''));
 }
 
-const SLIDER_GROUPS = [
-  {
-    id: 'warna',
-    title: 'Warna (Color)',
-    subtitle: 'Suhu, Corak, Saturasi & Vibrance',
-    items: [
-      { key: 'temperature', label: 'Suhu Warna (Temp)', min: -50, max: 50, bipolar: true, hint: 'Dingin (Biru) ↔ Hangat (Kuning)' },
-      { key: 'tint', label: 'Corak (Tint)', min: -50, max: 50, bipolar: true, hint: 'Hijau (−) ↔ Magenta (+)' },
-      { key: 'saturation', label: 'Saturasi', min: -50, max: 50, bipolar: true, hint: 'Kepekatan warna' },
-      { key: 'vibrance', label: 'Vibrance', min: -50, max: 60, bipolar: true, hint: 'Mengangkat warna lembut tanpa merusak kulit' },
-    ],
-  },
-  {
-    id: 'cahaya',
-    title: 'Cahaya & Kontras',
-    subtitle: 'Kecerahan, Sorotan, Bayangan & Kontras',
-    items: [
-      { key: 'exposure', label: 'Kecerahan (Exposure)', min: -50, max: 50, bipolar: true, hint: 'Mengatur terang-gelap keseluruhan foto' },
-      { key: 'contrast', label: 'Kontras', min: -50, max: 50, bipolar: true, hint: 'Ketegasan gelap dan terang' },
-      { key: 'highlight', label: 'Sorotan (Highlight)', min: -50, max: 50, bipolar: true, hint: 'Detail area terang & pantulan sinar matahari' },
-      { key: 'shadows', label: 'Bayangan (Shadow)', min: -50, max: 50, bipolar: true, hint: 'Detail area gelap pada karang & wetsuit' },
-      { key: 'whites', label: 'Iluminasi (Whites)', min: -50, max: 50, bipolar: true, hint: 'Titik putih terang pada pasir & riak air' },
-      { key: 'blacks', label: 'Hitam (Blacks)', min: -50, max: 50, bipolar: true, hint: 'Kepekatan bayangan terdalam' },
-    ],
-  },
-  {
-    id: 'efek',
-    title: 'Detail & Ketajaman',
-    subtitle: 'Pertajam, Kejelasan & Vinyet',
-    items: [
-      { key: 'sharpen', label: 'Pertajam (Sharpen)', min: 0, max: 100, hint: 'Menajamkan detail objek bawah air' },
-      { key: 'clarity', label: 'Kejelasan (Clarity)', min: -30, max: 80, bipolar: true, hint: 'Dimensi 3D dan struktur objek' },
-      { key: 'fade', label: 'Pudarkan (Fade)', min: 0, max: 100, hint: 'Sentuhan film matte lembut' },
-      { key: 'vignette', label: 'Vinyet (Vignette)', min: -50, max: 80, bipolar: true, hint: 'Menerangkan (−) atau menggelapkan (+) tepi sudut' },
-    ],
-  },
-];
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 
-const RESTORATION_KEYS = [
-  'redRestore',
-  'veil',
-  'attenuation',
-  'spotRemoval',
-  'waterLight',
-  'waterTint',
-  'skinTone',
-  'neutral',
-  'clarity',
-  'sharpen',
-  'vibrance',
-  'saturation',
-  'contrast',
-  'exposure',
-  'temperature',
-  'tint',
-  'shadows',
-  'highlight',
-  'whites',
-  'blacks',
-];
+/* ------------------------------------------------------------------ main */
 
-export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout }) {
+export default function Editor() {
   const [assets, setAssets] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [params, setParams] = useState(null);
   const [baseParams, setBaseParams] = useState(null);
   const [intensity, setIntensity] = useState(100);
-  const [activeTab, setActiveTab] = useState('luts'); // 'luts' | 'ai' | 'tune' | 'export'
-  const [tuneFilter, setTuneFilter] = useState('all'); // 'all' | 'warna' | 'cahaya' | 'efek'
-  const [viewMode, setViewMode] = useState('split'); // 'split' | 'after' | 'before'
+  const [tab, setTab] = useState('look');
+  const [viewMode, setViewMode] = useState('split');
   const [holdBefore, setHoldBefore] = useState(false);
-
   const [afterUrl, setAfterUrl] = useState(null);
   const [renderMs, setRenderMs] = useState(null);
-  const [engine] = useState('lokal');
-  const [metrics, setMetrics] = useState(null);
   const [rendering, setRendering] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [upload, setUpload] = useState(null); // { done, total }
+  const [saving, setSaving] = useState(false);
   const [drop, setDrop] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [ai, setAi] = useState(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiEnabled, setAiEnabled] = useState(false);
   const [format, setFormat] = useState('jpeg');
-  const [gear] = useState('umum');
-  const [aiWait, setAiWait] = useState(0);
-  const [full, setFull] = useState(false);
-
-  // High-Tech 0-100% Progress State (hanya untuk upload awal / explicit AI analysis)
-  const [progress, setProgress] = useState({ active: false, percent: 0, stage: '' });
+  const [pickMode, setPickMode] = useState(false);
+  const [hslBand, setHslBand] = useState('cyan');
+  const [curveCh, setCurveCh] = useState('m');
+  const [aiOpen, setAiOpen] = useState(false);
 
   const inputRef = useRef(null);
-  const stageRef = useRef(null);
   const seq = useRef(0);
   const dragDepth = useRef(0);
 
   const active = assets.find((a) => a.id === activeId) || null;
+  const val = (key) => params?.[key] ?? GRADE_DEFAULTS[key] ?? 0;
 
-  useEffect(() => {
-    api
-      .health()
-      .then((h) => {
-        setAiEnabled(Boolean(h.ai));
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const onChange = () => {
-      if (!document.fullscreenElement) setFull(false);
-    };
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      const tag = (e.target?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (e.key === 'Escape') {
-        setFull(false);
-        return;
-      }
-      if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        toggleFullscreen();
-      }
-      if (e.code === 'Space' && !e.repeat && active) {
-        e.preventDefault();
-        setHoldBefore(true);
-      }
-    };
-    const onKeyUp = (e) => {
-      if (e.code === 'Space') {
-        setHoldBefore(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  }, [full, active]);
-
-  useEffect(() => {
-    if (!aiBusy) {
-      setAiWait(0);
-      return undefined;
-    }
-    const started = Date.now();
-    const timer = setInterval(() => setAiWait(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(timer);
-  }, [aiBusy]);
-
+  /* notices */
   useEffect(() => {
     if (!notice) return undefined;
     const t = setTimeout(() => setNotice(''), 3000);
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Dynamic Progress Indicator - HANYA untuk Upload & Explicit AI run
+  /* hold space / long-press to compare */
   useEffect(() => {
-    let timer = null;
-    const isHeavy = uploading || aiBusy;
-    if (isHeavy) {
-      setProgress({
-        active: true,
-        percent: 15,
-        stage: uploading
-          ? 'Membaca Spektrum Optik & Kedalaman Kolom Air…'
-          : 'AI Menganalisis Kedalaman & Pigmen Warna…',
-      });
-
-      const startTime = Date.now();
-      timer = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        setProgress((prev) => {
-          if (!prev.active) return prev;
-          let nextPct = prev.percent;
-          let stage = prev.stage;
-          if (elapsed < 350) {
-            nextPct = Math.min(48, prev.percent + 6);
-            stage = uploading
-              ? 'Memisahkan Kolom Air Laut, Karang & Subjek…'
-              : 'Memetakan Lapisan Air Laut, Pasir & Subjek…';
-          } else if (elapsed < 850) {
-            nextPct = Math.min(78, prev.percent + 4);
-            stage = 'Menghitung Kalibrasi Pigmen & Restorasi Alami…';
-          } else if (elapsed < 1600) {
-            nextPct = Math.min(94, prev.percent + 2);
-            stage = 'Memvalidasi Rekonstruksi Struktur Foto…';
-          }
-          return { active: true, percent: nextPct, stage };
-        });
-      }, 60);
-    } else {
-      setProgress((prev) => {
-        if (!prev.active) return prev;
-        return { active: true, percent: 100, stage: 'Restorasi Selesai!' };
-      });
-      const hideTimer = setTimeout(() => {
-        setProgress({ active: false, percent: 0, stage: '' });
-      }, 300);
-      return () => clearTimeout(hideTimer);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [uploading, aiBusy]);
-
-  const uploadFiles = useCallback(async (fileList) => {
-    const rawList = Array.from(fileList || []);
-    const files = rawList.filter(isSupportedImageFile).slice(0, 8);
-    if (!files.length) {
-      if (rawList.length) {
-        setError('Format file belum didukung. Gunakan JPG, PNG, WEBP, atau HEIC.');
+    const down = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.code === 'Space' && !e.repeat && active) {
+        e.preventDefault();
+        setHoldBefore(true);
       }
+      if (e.key === 'Escape') {
+        setPickMode(false);
+        setAiOpen(false);
+      }
+    };
+    const up = (e) => e.code === 'Space' && setHoldBefore(false);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, [active]);
+
+  /* upload */
+  const uploadFiles = useCallback(async (fileList) => {
+    const raw = Array.from(fileList || []);
+    const files = raw.filter(isSupportedImageFile).slice(0, 12);
+    if (!files.length) {
+      if (raw.length) setError('Format belum didukung. Gunakan JPG, PNG, WEBP, atau HEIC.');
       return;
     }
-
-    setUploading(true);
     setError('');
-    try {
-      let firstId = null;
-      for (const file of files) {
-        const res = await api.upload(file, gear);
+    setUpload({ done: 0, total: files.length });
+    let firstId = null;
+    let failed = 0;
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const res = await api.upload(files[i]);
         setAssets((prev) => [...prev, { ...res.asset, condition: res.condition }]);
         if (!firstId) firstId = res.asset.id;
+      } catch {
+        failed++;
       }
-      if (firstId) setActiveId(firstId);
-    } catch (err) {
-      setError(err.message);
-      if (err.needsAuth && onAuth) onAuth();
-    } finally {
-      setUploading(false);
+      setUpload({ done: i + 1, total: files.length });
     }
-  }, [onAuth, gear]);
+    if (firstId) setActiveId(firstId);
+    if (failed) setError(`${failed} foto gagal dibuka (format rusak atau terlalu besar).`);
+    setUpload(null);
+  }, []);
 
   useEffect(() => {
     const onPaste = (e) => {
@@ -261,6 +236,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     return () => window.removeEventListener('paste', onPaste);
   }, [uploadFiles]);
 
+  /* a new active photo starts from its own automatic grade */
   useEffect(() => {
     if (!active) {
       setParams(null);
@@ -268,779 +244,450 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
       setAfterUrl(null);
       return;
     }
-    const initial = { ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
+    const initial = { ...GRADE_DEFAULTS, ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
     setParams(initial);
     setBaseParams(initial);
     setIntensity(100);
     setAfterUrl(null);
-    setAi(null);
-    setMetrics(null);
+    setPickMode(false);
   }, [activeId]);
 
-  // Debounced render
+  /* render: debounced, cancel-safe. Shows only a small badge, never a blocking overlay. */
   useEffect(() => {
     if (!activeId || !params) return undefined;
     const ticket = ++seq.current;
-    const controller = new AbortController();
     setRendering(true);
-
     const timer = setTimeout(async () => {
       try {
-        const previewEdge = 1600;
-        const res = await api.render(activeId, params, previewEdge, engine, gear, null, controller.signal);
+        const res = await api.render(activeId, params, 1600);
         if (ticket !== seq.current) return;
         setAfterUrl(res.url);
         setRenderMs(res.ms);
-        setMetrics(res.metrics || null);
         setError('');
       } catch (err) {
-        if (err?.name === 'AbortError') return;
-        if (ticket === seq.current) setError(err.message);
+        if (ticket === seq.current) setError(err.message || 'Gagal memproses foto.');
       } finally {
         if (ticket === seq.current) setRendering(false);
       }
-    }, 180);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [activeId, params]);
 
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [activeId, params, engine, gear]);
+  /* ---- parameter helpers ---- */
+  const setKey = (key, v) => {
+    setParams((p) => ({ ...p, [key]: v }));
+    setBaseParams((p) => (p ? { ...p, [key]: v } : p));
+  };
+  const resetKey = (key) => setKey(key, active?.auto?.[key] ?? GRADE_DEFAULTS[key] ?? 0);
+  const setMany = (obj) => {
+    setParams((p) => ({ ...p, ...obj }));
+    setBaseParams((p) => (p ? { ...p, ...obj } : p));
+  };
 
-  async function runAI() {
-    if (!active) return;
-    setAiBusy(true);
-    setAi(null);
-    setError('');
-    try {
-      const res = await api.analyze(active.id, null);
-      setAi(res);
-      if (res.params) {
-        const merged = { ...(params || {}), ...res.params, refMatch: 0 };
-        setParams(merged);
-        setBaseParams(merged);
-        setIntensity(100);
-        setNotice('✦ AI Auto White Balance berhasil diterapkan!');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  function applyIntensityScale(pct, refBase = baseParams) {
+  function scaleIntensity(pct, ref = baseParams) {
     setIntensity(pct);
-    if (!refBase) return;
-    const factor = pct / 100;
+    if (!ref) return;
+    const f = pct / 100;
     setParams((prev) => {
       if (!prev) return prev;
       const next = { ...prev };
-      for (const k of RESTORATION_KEYS) {
-        if (refBase[k] !== undefined) {
-          next[k] = Math.round(refBase[k] * factor);
-        }
-      }
+      for (const k of RESTORATION_KEYS) if (ref[k] !== undefined) next[k] = Math.round(ref[k] * f);
       return next;
     });
   }
 
-  function applyLut(lutId) {
+  function autoGrade() {
     if (!active) return;
-    const base = PRESETS[lutId]?.base || PRESETS.freedive.base;
-    const next = { ...base, preset: lutId, refMatch: 0 };
+    const next = { ...GRADE_DEFAULTS, ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
+    setParams(next);
     setBaseParams(next);
-    const factor = intensity / 100;
-    const scaled = { ...next };
-    for (const k of RESTORATION_KEYS) {
-      if (next[k] !== undefined) {
-        scaled[k] = Math.round(next[k] * factor);
-      }
-    }
-    setParams(scaled);
-    const lutMeta = OCEAN_LUTS.find((l) => l.id === lutId);
-    setNotice(`LUT ${lutMeta ? lutMeta.name : lutId} diterapkan.`);
-  }
-
-  function resetParams() {
-    if (!active) return;
-    const initial = { ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
-    setParams(initial);
-    setBaseParams(initial);
     setIntensity(100);
-    setAi(null);
-    setNotice('Kembali ke setelan otomatis awal.');
+    setNotice('Auto Grading diterapkan (analisa lokal, tanpa AI).');
   }
 
-  const removeAsset = useCallback((idToRemove) => {
-    api.removeAsset(idToRemove);
+  function applyLook(id) {
+    if (!active) return;
+    const next = { ...params, ...(PRESETS[id]?.base || {}), preset: id, refMatch: 0 };
+    setBaseParams(next);
+    const f = intensity / 100;
+    const scaled = { ...next };
+    for (const k of RESTORATION_KEYS) if (next[k] !== undefined) scaled[k] = Math.round(next[k] * f);
+    setParams(scaled);
+    setNotice(`Look "${LOOKS.find((l) => l.id === id)?.name || id}" diterapkan.`);
+  }
+
+  function resetAll() {
+    if (!active) return;
+    const next = { ...GRADE_DEFAULTS, ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
+    setParams(next);
+    setBaseParams(next);
+    setIntensity(100);
+    setNotice('Semua pengaturan dikembalikan.');
+  }
+
+  const removeAsset = useCallback((id) => {
+    api.removeAsset(id);
     setAssets((prev) => {
-      const remaining = prev.filter((a) => a.id !== idToRemove);
-      if (activeId === idToRemove) {
-        const nextActive = remaining.length > 0 ? remaining[0].id : null;
-        setActiveId(nextActive);
-      }
-      return remaining;
+      const rest = prev.filter((a) => a.id !== id);
+      if (activeId === id) setActiveId(rest[0]?.id ?? null);
+      return rest;
     });
   }, [activeId]);
 
-  function updateSingleSlider(key, val) {
-    setParams((prev) => ({ ...prev, [key]: val }));
-    setBaseParams((prev) => (prev ? { ...prev, [key]: val } : prev));
-  }
-
-  function resetSingleSlider(key) {
-    const fallback = active?.auto?.[key] ?? 0;
-    updateSingleSlider(key, fallback);
-  }
-
-  async function toggleFullscreen() {
-    const next = !full;
-    setFull(next);
-    const el = stageRef.current;
-    if (!el) return;
+  /* ---- white-balance eyedropper ---- */
+  async function onPick(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
     try {
-      if (next) await el.requestFullscreen?.();
-      else if (document.fullscreenElement) await document.exitFullscreen();
-    } catch {}
-  }
-
-  async function handleDownload(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!active || !params) return;
-    if (active.id?.startsWith('local-') || api.isOffline?.()) {
-      try {
-        setNotice('Menyimpan ke Galeri HP (Full HD)...');
-        const { offlineEngine } = await import('../offlineEngine.js');
-        const res = await offlineEngine.exportHighRes(active.id, params, format === 'webp' ? 'image/webp' : 'image/jpeg');
-
-        if (res.gallerySaved) {
-          setNotice('Foto berhasil tersimpan di Galeri HP (Album: FreeColor)!');
-        } else {
-          const a = document.createElement('a');
-          a.href = res.url;
-          a.download = res.filename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(res.url);
-          }, 2000);
-          setNotice('Foto berhasil disimpan!');
-        }
-      } catch (err) {
-        setError('Gagal menyimpan: ' + err.message);
-      }
+      const img = await loadImage(afterUrl || active.beforeUrl);
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const scale = Math.min(rect.width / nw, rect.height / nh);
+      const ox = (rect.width - nw * scale) / 2;
+      const oy = (rect.height - nh * scale) / 2;
+      const px = Math.round((e.clientX - rect.left - ox) / scale);
+      const py = Math.round((e.clientY - rect.top - oy) / scale);
+      if (px < 0 || py < 0 || px >= nw || py >= nh) return;
+      const c = document.createElement('canvas');
+      c.width = nw;
+      c.height = nh;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const x0 = Math.max(0, px - 3);
+      const y0 = Math.max(0, py - 3);
+      const d = ctx.getImageData(x0, y0, Math.min(7, nw - x0), Math.min(7, nh - y0)).data;
+      let r = 0, g = 0, b = 0;
+      const cnt = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+      setMany(wbFromPick([r / cnt, g / cnt, b / cnt], params));
+      setPickMode(false);
+      setNotice('Keseimbangan putih diatur dari titik yang dipilih.');
+    } catch {
+      setError('Tidak bisa membaca warna dari titik itu.');
     }
   }
 
-  const effectiveViewMode = holdBefore ? 'before' : viewMode;
+  /* ---- save to gallery / download ---- */
+  async function handleSave() {
+    if (!active || !params || saving) return;
+    setSaving(true);
+    setNotice('Menyimpan Full HD…');
+    try {
+      const res = await api.exportHighRes(active.id, params, format === 'webp' ? 'image/webp' : 'image/jpeg');
+      if (res.gallerySaved) {
+        setNotice('Tersimpan di Galeri HP (album FreeColor).');
+      } else {
+        const a = document.createElement('a');
+        a.href = res.url;
+        a.download = res.filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(res.url);
+        }, 2000);
+        setNotice(`Foto diunduh (${(res.sizeBytes / 1024 / 1024).toFixed(2)} MB).`);
+      }
+    } catch (err) {
+      setError('Gagal menyimpan: ' + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  // Compute live RGB balance percentages
-  const rawR = Math.round((active?.stats?.meanR ?? 0.22) * 100);
-  const rawG = Math.round((active?.stats?.meanG ?? 0.55) * 100);
-  const rawB = Math.round((active?.stats?.meanB ?? 0.52) * 100);
-  const estGainR = metrics?.gainR || 1.25;
-  const balR = Math.min(100, Math.round(rawR * estGainR * (intensity / 100) + rawR * (1 - intensity / 100)));
+  const mode = holdBefore ? 'before' : viewMode;
+  const modified = active && params && Object.keys(GRADE_DEFAULTS).some((k) => k !== 'splitShadowHue' && k !== 'splitHighHue' && Math.abs((params[k] ?? GRADE_DEFAULTS[k]) - GRADE_DEFAULTS[k]) > 1e-3);
+
+  /* ------------------------------------------------------------ panels */
+  const renderSliders = (items) =>
+    items.map((it) => (
+      <Slider key={it.key} item={it} value={val(it.key)} onChange={(v) => setKey(it.key, v)} onReset={() => resetKey(it.key)} />
+    ));
+
+  const band = HSL_BANDS.find((b) => b.id === hslBand);
+  const cvCh = CURVE_CHANNELS.find((c) => c.id === curveCh);
+  const cv = (s) => val(`cv_${curveCh}_${s}`);
 
   return (
     <div
-      className="ocean-app"
-      onDragEnter={(e) => {
-        e.preventDefault();
-        dragDepth.current += 1;
-        setDrop(true);
-      }}
+      className="app"
+      onDragEnter={(e) => { e.preventDefault(); dragDepth.current += 1; setDrop(true); }}
       onDragOver={(e) => e.preventDefault()}
-      onDragLeave={() => {
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (!dragDepth.current) setDrop(false);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        dragDepth.current = 0;
-        setDrop(false);
-        uploadFiles(e.dataTransfer?.files);
-      }}
+      onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDrop(false); }}
+      onDrop={(e) => { e.preventDefault(); dragDepth.current = 0; setDrop(false); uploadFiles(e.dataTransfer?.files); }}
     >
-      {/* 1. Header Bar: Ocean Edit Brand + Mode Demo */}
-      <header className="ocean-top-bar">
-        <div className="ocean-brand">
-          <span className="ocean-brand-icon">🌊</span>
-          <div className="ocean-brand-text">
-            <b>OCEAN EDIT</b>
-            <span className="ocean-demo-tag">DEMO MODE · OFFLINE</span>
-          </div>
+      {/* ------------------------------------------------ header */}
+      <header className="bar">
+        <div className="brand">
+          <span className="brand-logo"><Icon name="wave" /></span>
+          <b>FreeColor</b>
         </div>
-
-        <div className="ocean-top-actions">
+        <div className="bar-actions">
           {active && (
-            <div className="ocean-view-selector" role="group" aria-label="Mode tampilan">
+            <div className="seg" role="group" aria-label="Mode tampilan">
+              <button className={mode === 'split' ? 'on' : ''} onClick={() => setViewMode('split')}>Belah</button>
+              <button className={mode === 'after' ? 'on' : ''} onClick={() => setViewMode('after')}>Hasil</button>
               <button
-                type="button"
-                className={viewMode === 'split' && !holdBefore ? 'on' : ''}
-                onClick={() => setViewMode('split')}
-                title="Mode Belah (Split)"
-              >
-                Belah
-              </button>
-              <button
-                type="button"
-                className={viewMode === 'after' && !holdBefore ? 'on' : ''}
-                onClick={() => setViewMode('after')}
-                title="Tampilan Hasil Penuh"
-              >
-                Hasil
-              </button>
-              <button
-                type="button"
-                className={holdBefore || viewMode === 'before' ? 'on' : ''}
-                onMouseDown={() => setHoldBefore(true)}
-                onMouseUp={() => setHoldBefore(false)}
-                onMouseLeave={() => setHoldBefore(false)}
-                onTouchStart={() => setHoldBefore(true)}
-                onTouchEnd={() => setHoldBefore(false)}
-                onClick={() => setViewMode((v) => (v === 'before' ? 'split' : 'before'))}
+                className={mode === 'before' ? 'on' : ''}
+                onPointerDown={() => setHoldBefore(true)}
+                onPointerUp={() => setHoldBefore(false)}
+                onPointerLeave={() => setHoldBefore(false)}
                 title="Tahan untuk melihat foto asli"
-              >
-                Asli
-              </button>
+              >Asli</button>
             </div>
           )}
-
-          <button
-            type="button"
-            className="ocean-icon-btn"
-            onClick={toggleFullscreen}
-            title="Layar Penuh (F)"
-          >
-            {full ? '⤓' : '⛶'}
+          <button className="btn btn-soft" onClick={() => setAiOpen(true)} title="Asisten AI (opsional, butuh API key sendiri)">
+            <Icon name="sparkle" /><span className="hide-sm">AI</span>
           </button>
-
-          <button
-            type="button"
-            className="ocean-add-btn"
-            onClick={() => inputRef.current?.click()}
-          >
-            + Foto
+          <button className="btn btn-soft" onClick={() => inputRef.current?.click()}>
+            <Icon name="plus" /><span className="hide-sm">Foto</span>
           </button>
+          {active && (
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              <Icon name="save" /><span className="hide-sm">{saving ? 'Menyimpan…' : 'Simpan'}</span>
+            </button>
+          )}
         </div>
       </header>
 
-      {/* 2. Body View: Empty / Upload or Active Editor */}
+      {/* ------------------------------------------------ empty */}
       {!assets.length ? (
-        <section className="ocean-empty-view">
-          <div className={`ocean-upload-card ${drop ? 'drag-on' : ''}`} onClick={() => inputRef.current?.click()}>
-            <div className="ocean-upload-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" width="52" height="52">
-                <path d="M24 32V12m0 0-7 7m7-7 7 7" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 30v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            </div>
-            <h1>{uploading ? 'Membaca Spektrum Optik…' : 'OCEAN EDIT STUDIO'}</h1>
-            <p className="ocean-empty-desc">
-              Grading warna bawah air profesional untuk Scuba & Freediving.
-              <br />
-              <b>100% In-Device Offline Engine</b> · Cepat & Ringan di HP Anda.
-            </p>
-            <button type="button" className="ocean-btn-hero">
-              {uploading ? 'Sedang Memproses Foto…' : '📸 Buka Foto Bawah Air'}
-            </button>
-            <div className="ocean-feature-tags">
-              <span>🌊 Solstice & Underwater LUTs</span>
-              <span>✦ AI Auto White Balance</span>
-              <span>⚡ Full HD Resolusi Tinggi</span>
-              <span>💾 Simpan Langsung ke Galeri</span>
-            </div>
+        <main className="empty">
+          <div className={`hero ${drop ? 'drag' : ''}`} onClick={() => inputRef.current?.click()}>
+            <div className="hero-orb"><Icon name="wave" /></div>
+            <h1>FreeColor</h1>
+            <p>Editor foto bawah air. Pulihkan merah, jernihkan air, atur warna seperti editor profesional, semuanya langsung di perangkat Anda.</p>
+            <button className="btn btn-primary btn-lg">{upload ? `Membuka foto ${upload.done}/${upload.total}…` : 'Buka Foto'}</button>
+            <ul className="hero-tags">
+              <li>Auto Grading lokal</li>
+              <li>Look bawah air</li>
+              <li>Kurva & HSL</li>
+              <li>Full HD ≤ 2 MB</li>
+            </ul>
+            {error && <p className="err-inline">{error}</p>}
           </div>
-          {error && <p className="ed-error">{error}</p>}
-        </section>
+        </main>
       ) : (
-        <div className="ocean-editor-layout">
-          {/* Main Visual Stage / Viewport */}
-          <section className="ocean-viewport">
-            <div
-              ref={stageRef}
-              className={`ocean-stage-frame ${full ? 'is-full' : ''}`}
-              onDoubleClick={toggleFullscreen}
-            >
+        <main className="work">
+          {/* ---------------------------------------------- stage */}
+          <section className="stage-col">
+            <div className="stage">
               {active && (
                 <Compare
                   before={active.beforeUrl}
                   after={afterUrl || undefined}
-                  ratio={undefined}
                   initial={50}
-                  viewMode={effectiveViewMode}
+                  viewMode={mode}
                   beforeLabel="ASLI"
                   afterLabel="HASIL"
                 />
               )}
-
-              {/* Discreet live loading indicator during manual grading */}
-              {rendering && !progress.active && (
-                <div className="ocean-mini-badge" title="Memperbarui tampilan...">
-                  <span className="ocean-spin" />
-                  <span>Memperbarui…</span>
+              {pickMode && (
+                <div className="pick-layer" onClick={onPick} role="button" aria-label="Pilih titik netral">
+                  <span className="pick-hint">Ketuk area yang seharusnya putih / abu-abu (pasir, alat selam)</span>
                 </div>
               )}
-
-              {/* High-Tech 0-100% Progress Modal Overlay */}
-              {progress.active && (
-                <div className="processing-progress-overlay">
-                  <div className="processing-progress-card">
-                    <div className="processing-header">
-                      <span className="processing-spinner" />
-                      <div className="processing-info">
-                        <h4>Ocean Edit · Rekonstruksi Spektrum</h4>
-                        <p>{progress.stage}</p>
-                      </div>
-                      <span className="processing-number">{progress.percent}%</span>
+              {rendering && !upload && <div className="badge-busy"><i className="spin" />Memperbarui</div>}
+              {renderMs != null && !rendering && <div className="badge-ms">{renderMs} ms</div>}
+              {upload && (
+                <div className="overlay">
+                  <div className="card-progress">
+                    <i className="spin spin-lg" />
+                    <div>
+                      <b>Membaca foto {Math.min(upload.done + 1, upload.total)} dari {upload.total}</b>
+                      <small>Mengukur spektrum warna & menentukan Auto Grading</small>
                     </div>
-                    <div className="processing-bar-track">
-                      <div
-                        className="processing-bar-fill"
-                        style={{ width: `${progress.percent}%` }}
-                      />
-                    </div>
-                    <div className="processing-badges">
-                      <span className={`p-badge ${progress.percent >= 25 ? 'done' : ''}`}>🌊 Air Laut</span>
-                      <span className={`p-badge ${progress.percent >= 50 ? 'done' : ''}`}>🏖️ Subjek</span>
-                      <span className={`p-badge ${progress.percent >= 75 ? 'done' : ''}`}>🎨 Pigmen</span>
-                      <span className={`p-badge ${progress.percent >= 90 ? 'done' : ''}`}>🛡️ Dehaze</span>
-                    </div>
+                    <div className="track"><div style={{ width: `${(upload.done / upload.total) * 100}%` }} /></div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Thumbnail Filmstrip with Close Button */}
-            <div className="ocean-filmstrip">
+            <div className="strip">
               {assets.map((a) => (
-                <div
-                  key={a.id}
-                  className={`ocean-strip-thumb ${a.id === activeId ? 'active' : ''}`}
-                  onClick={() => setActiveId(a.id)}
-                  title={a.name}
-                  role="button"
-                  tabIndex={0}
-                >
+                <div key={a.id} className={`thumb ${a.id === activeId ? 'on' : ''}`} onClick={() => setActiveId(a.id)} title={a.name} role="button" tabIndex={0}>
                   <img src={a.thumbUrl} alt={a.name} />
-                  <button
-                    type="button"
-                    className="strip-remove"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeAsset(a.id);
-                    }}
-                    title={`Hapus ${a.name}`}
-                    aria-label={`Hapus ${a.name}`}
-                  >
-                    ×
-                  </button>
+                  <button className="thumb-x" aria-label={`Hapus ${a.name}`} title="Hapus foto" onClick={(e) => { e.stopPropagation(); removeAsset(a.id); }}>×</button>
                 </div>
               ))}
-              <button
-                type="button"
-                className="ocean-strip-add"
-                onClick={() => inputRef.current?.click()}
-                title="Tambah Foto"
-              >
-                +
-              </button>
+              <button className="thumb-add" onClick={() => inputRef.current?.click()} aria-label="Tambah foto">+</button>
             </div>
           </section>
 
-          {/* Ocean Edit Control Deck */}
-          <aside className="ocean-deck">
-            {/* 4 Bottom Navigation Tabs */}
-            <nav className="ocean-deck-tabs" aria-label="Navigasi Fitur Ocean Edit">
-              <button
-                type="button"
-                className={`ocean-tab ${activeTab === 'luts' ? 'active' : ''}`}
-                onClick={() => setActiveTab('luts')}
-              >
-                <span className="tab-icon">🎨</span>
-                <span className="tab-title">LUTs</span>
-              </button>
-              <button
-                type="button"
-                className={`ocean-tab ${activeTab === 'ai' ? 'active' : ''}`}
-                onClick={() => setActiveTab('ai')}
-              >
-                <span className="tab-icon">✦</span>
-                <span className="tab-title">AI Balance</span>
-              </button>
-              <button
-                type="button"
-                className={`ocean-tab ${activeTab === 'tune' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tune')}
-              >
-                <span className="tab-icon">🎚️</span>
-                <span className="tab-title">Sesuaikan</span>
-              </button>
-              <button
-                type="button"
-                className={`ocean-tab ${activeTab === 'export' ? 'active' : ''}`}
-                onClick={() => setActiveTab('export')}
-              >
-                <span className="tab-icon">💾</span>
-                <span className="tab-title">Simpan</span>
-              </button>
+          {/* ---------------------------------------------- panel */}
+          <aside className="panel">
+            <nav className="tabs" aria-label="Menu pengeditan">
+              {TABS.map((t) => (
+                <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>{t.label}</button>
+              ))}
             </nav>
 
-            {/* Tab Panes */}
-            <div className="ocean-deck-content">
-              {/* TAB 1: UNDERWATER LUTS */}
-              {activeTab === 'luts' && (
-                <div className="ocean-tab-pane">
-                  {/* Master Intensity */}
-                  <div className="ocean-card">
-                    <div className="slider-top">
-                      <label htmlFor="sl-lut-intensity">Kekuatan LUT ({intensity}%)</label>
-                      <button type="button" className="link-btn" onClick={resetParams}>Reset</button>
-                    </div>
-                    <input
-                      id="sl-lut-intensity"
-                      type="range"
-                      min={0}
-                      max={150}
-                      step={1}
+            <div className="panel-body">
+              {tab === 'look' && (
+                <>
+                  <div className="card">
+                    <button className="btn btn-primary btn-block btn-lg" onClick={autoGrade} disabled={!active}>
+                      <Icon name="sparkle" /> Auto Grading
+                    </button>
+                    <p className="note">Analisa warna air langsung di perangkat. Tanpa internet, tanpa AI, tanpa API key.</p>
+                    <Slider
+                      item={{ label: 'Kekuatan Look', min: 0, max: 150, unit: '%' }}
                       value={intensity}
-                      onDoubleClick={() => applyIntensityScale(100)}
-                      onChange={(e) => applyIntensityScale(Number(e.target.value))}
+                      onChange={(v) => scaleIntensity(v)}
+                      onReset={() => scaleIntensity(100)}
                     />
-                    <div className="master-ticks">
-                      <span>0% (Asli)</span>
-                      <span>100% (Standar)</span>
-                      <span>150% (Kuat)</span>
-                    </div>
                   </div>
-
-                  <div className="ocean-section-header">
-                    <span>UNDERWATER LOOK-UP TABLES (LUTs)</span>
-                    <small>Dikalibrasi untuk GoPro, DJI & Mirrorless</small>
+                  <h3 className="h">Look Bawah Air</h3>
+                  <div className="looks">
+                    {LOOKS.map((l) => (
+                      <button key={l.id} className={`look ${params?.preset === l.id ? 'on' : ''}`} onClick={() => applyLook(l.id)}>
+                        <i style={{ background: l.color }} />
+                        <span><b>{l.name}</b><small>{l.tag}</small></span>
+                        <em>{l.desc}</em>
+                      </button>
+                    ))}
                   </div>
-
-                  <div className="ocean-lut-list">
-                    {OCEAN_LUTS.map((lut) => {
-                      const isSel = (params?.preset || 'freedive') === lut.id;
-                      return (
-                        <button
-                          key={lut.id}
-                          type="button"
-                          className={`ocean-lut-card ${isSel ? 'active' : ''}`}
-                          onClick={() => applyLut(lut.id)}
-                        >
-                          <div className="ocean-lut-badge" style={{ borderColor: lut.color, background: `${lut.color}18` }}>
-                            <span>{lut.icon}</span>
-                          </div>
-                          <div className="ocean-lut-info">
-                            <div className="ocean-lut-row">
-                              <span className="ocean-lut-name">{lut.name}</span>
-                              {isSel && <span className="ocean-lut-active-tag">AKTIF</span>}
-                            </div>
-                            <span className="ocean-lut-tag">{lut.tag}</span>
-                            <p className="ocean-lut-desc">{lut.desc}</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Diagnostic Spectrum */}
                   {active?.condition && (
-                    <div className="ocean-spec-card">
-                      <div className="ocean-spec-head">
-                        <span>SENSOR OPTIK SPEKTRUM AIR</span>
-                        <span className="ocean-tag-cyan">Cast {active.condition.cast}</span>
-                      </div>
-                      <div className="diag">
-                        <span className="chip"><b>Defisit Merah</b>−{active.condition.redLoss}%</span>
-                        <span className="chip"><b>Partikel Haze</b>{active.condition.haze}</span>
-                        <span className="chip"><b>Kerapatan 3D</b>{active.condition.detail}</span>
-                      </div>
-                      <div className="rgb-bars" style={{ marginTop: 8 }}>
-                        <div className="rgb-row">
-                          <span>R</span>
-                          <div className="rgb-track">
-                            <i className="rgb-fill r" style={{ width: `${Math.min(100, Math.max(8, balR * 1.3))}%` }} />
-                          </div>
-                          <small>{balR}%</small>
-                        </div>
-                        <div className="rgb-row">
-                          <span>G</span>
-                          <div className="rgb-track">
-                            <i className="rgb-fill g" style={{ width: `${Math.min(100, Math.max(8, rawG * 1.25))}%` }} />
-                          </div>
-                          <small>{rawG}%</small>
-                        </div>
-                        <div className="rgb-row">
-                          <span>B</span>
-                          <div className="rgb-track">
-                            <i className="rgb-fill b" style={{ width: `${Math.min(100, Math.max(8, rawB * 1.25))}%` }} />
-                          </div>
-                          <small>{rawB}%</small>
-                        </div>
+                    <div className="card">
+                      <h3 className="h h-tight">Hasil Analisa Foto</h3>
+                      <div className="chips">
+                        <span><b>Air</b>{active.condition.cast}</span>
+                        <span><b>Defisit merah</b>−{active.condition.redLoss}%</span>
+                        <span><b>Kabut</b>{active.condition.haze}</span>
+                        <span><b>Detail</b>{active.condition.detail}</span>
                       </div>
                     </div>
                   )}
-                </div>
+                </>
               )}
 
-              {/* TAB 2: AI BALANCE & OPTICAL RECOVERY */}
-              {activeTab === 'ai' && (
-                <div className="ocean-tab-pane">
-                  {/* Hero Auto Button */}
-                  <div className="ocean-ai-card">
-                    <button
-                      type="button"
-                      className="ocean-ai-hero-btn"
-                      onClick={runAI}
-                      disabled={aiBusy || !active}
-                    >
-                      <span className="ai-spark">✦</span>
-                      <div className="ai-btn-text">
-                        <b>{aiBusy ? `AI Menganalisis Spektrum… ${aiWait ? `${aiWait}s` : ''}` : 'AI Auto White Balance'}</b>
-                        <small>{aiBusy ? 'Menghitung kedalaman & red restoration…' : 'Satu sentuhan: otomatis pulihkan spektrum merah & eliminasi kabut air'}</small>
-                      </div>
+              {tab === 'warna' && (
+                <>
+                  <div className="card">
+                    <div className="row-between">
+                      <h3 className="h h-tight">Keseimbangan Putih</h3>
+                      {(val('wbR') !== 1 || val('wbG') !== 1 || val('wbB') !== 1) && (
+                        <button className="link" onClick={() => setMany({ wbR: 1, wbG: 1, wbB: 1 })}>Reset</button>
+                      )}
+                    </div>
+                    <button className={`btn btn-block ${pickMode ? 'btn-primary' : 'btn-soft'}`} onClick={() => setPickMode((v) => !v)}>
+                      <Icon name="pick" /> {pickMode ? 'Ketuk foto untuk memilih titik netral…' : 'Pipet Titik Netral'}
                     </button>
-
-                    {ai && (
-                      <div className="ai-result-box" style={{ marginTop: 10 }}>
-                        <div className="diag">
-                          {ai.scene && <span className="chip"><b>Tipe Air</b>{ai.scene}</span>}
-                          {ai.depthM != null && <span className="chip"><b>Kedalaman</b>±{ai.depthM}m</span>}
-                          {ai.backscatter && <span className="chip"><b>Partikel</b>{ai.backscatter}</span>}
-                        </div>
-                        {ai.notes && <p className="ai-note">{ai.notes}</p>}
-                      </div>
-                    )}
+                    <p className="note">Pilih pasir putih, alat selam, atau bagian abu-abu agar cast warna air hilang.</p>
                   </div>
-
-                  <div className="ocean-section-header">
-                    <span>KONTROL SPEKTRUM AIR (PHYSICS ENGINE)</span>
-                  </div>
-
-                  <div className="ocean-slider-group">
-                    {/* 1. Pulihkan Spektrum Merah */}
-                    <div className="slider">
-                      <div className="slider-top">
-                        <label htmlFor="sl-redRestore">Pulihkan Merah (Red Recovery)</label>
-                        <output>{Math.round(params?.redRestore || 0)}%</output>
-                      </div>
-                      <input
-                        id="sl-redRestore"
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={params?.redRestore || 0}
-                        onDoubleClick={() => resetSingleSlider('redRestore')}
-                        onChange={(e) => updateSingleSlider('redRestore', Number(e.target.value))}
-                      />
-                    </div>
-
-                    {/* 2. Kejernihan Air / Dehaze */}
-                    <div className="slider">
-                      <div className="slider-top">
-                        <label htmlFor="sl-veil">Kejernihan Air (Dehaze)</label>
-                        <output>{Math.round(params?.veil || 0)}%</output>
-                      </div>
-                      <input
-                        id="sl-veil"
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={params?.veil || 0}
-                        onDoubleClick={() => resetSingleSlider('veil')}
-                        onChange={(e) => updateSingleSlider('veil', Number(e.target.value))}
-                      />
-                    </div>
-
-                    {/* 3. Reduksi Fog Kedalaman */}
-                    <div className="slider">
-                      <div className="slider-top">
-                        <label htmlFor="sl-attenuation">Keseimbangan Kedalaman</label>
-                        <output>{Math.round(params?.attenuation || 0)}%</output>
-                      </div>
-                      <input
-                        id="sl-attenuation"
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={params?.attenuation || 0}
-                        onDoubleClick={() => resetSingleSlider('attenuation')}
-                        onChange={(e) => updateSingleSlider('attenuation', Number(e.target.value))}
-                      />
-                    </div>
-
-                    {/* 4. Marine Snow / Backscatter Inpainting */}
-                    <div className="slider">
-                      <div className="slider-top">
-                        <label htmlFor="sl-spotRemoval">Hapus Backscatter (Marine Snow)</label>
-                        <output>{Math.round(params?.spotRemoval || 0)}%</output>
-                      </div>
-                      <input
-                        id="sl-spotRemoval"
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={params?.spotRemoval || 0}
-                        onDoubleClick={() => resetSingleSlider('spotRemoval')}
-                        onChange={(e) => updateSingleSlider('spotRemoval', Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                </div>
+                  <div className="group">{renderSliders(WARNA)}</div>
+                  <h3 className="h">Pemulihan Bawah Air</h3>
+                  <div className="group">{renderSliders(PULIH)}</div>
+                </>
               )}
 
-              {/* TAB 3: SESUAIKAN (MANUAL GRADING) */}
-              {activeTab === 'tune' && params && (
-                <div className="ocean-tab-pane">
-                  <div className="ocean-tune-filters">
-                    {[
-                      { id: 'all', label: 'Semua' },
-                      { id: 'warna', label: 'Warna' },
-                      { id: 'cahaya', label: 'Cahaya' },
-                      { id: 'efek', label: 'Detail' },
-                    ].map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`ocean-filter-pill ${tuneFilter === f.id ? 'on' : ''}`}
-                        onClick={() => setTuneFilter(f.id)}
-                      >
-                        {f.label}
+              {tab === 'cahaya' && (
+                <>
+                  <div className="group">{renderSliders(CAHAYA)}</div>
+                  <h3 className="h">Gradasi Linear</h3>
+                  <div className="group">{renderSliders(GRADASI)}</div>
+                </>
+              )}
+
+              {tab === 'hsl' && (
+                <>
+                  <div className="swatches" role="tablist" aria-label="Pita warna">
+                    {HSL_BANDS.map((b) => (
+                      <button key={b.id} role="tab" aria-selected={hslBand === b.id} className={hslBand === b.id ? 'on' : ''} style={{ '--c': b.color }} onClick={() => setHslBand(b.id)} title={b.label}>
+                        <i />
+                        <span>{b.label}</span>
                       </button>
                     ))}
-                    <button type="button" className="link-btn" style={{ marginLeft: 'auto' }} onClick={resetParams}>
-                      Reset
-                    </button>
                   </div>
-
-                  <div className="ocean-tune-stack">
-                    {SLIDER_GROUPS
-                      .filter((g) => tuneFilter === 'all' || tuneFilter === g.id)
-                      .map((group) => (
-                        <div key={group.id} className="ocean-group-card">
-                          <h4 className="ocean-group-title">{group.title}</h4>
-                          <div className="ocean-slider-group">
-                            {group.items.map((s) => {
-                              const val = Math.round(params[s.key] ?? 0);
-                              return (
-                                <div className="slider" key={s.key} title={s.hint}>
-                                  <div className="slider-top">
-                                    <label htmlFor={`sl-${s.key}`}>{s.label}</label>
-                                    <output>
-                                      {s.bipolar && val > 0 ? `+${val}` : val}
-                                      {s.unit || ''}
-                                    </output>
-                                  </div>
-                                  <input
-                                    id={`sl-${s.key}`}
-                                    type="range"
-                                    min={s.min}
-                                    max={s.max}
-                                    step={1}
-                                    value={params[s.key] ?? 0}
-                                    onDoubleClick={() => resetSingleSlider(s.key)}
-                                    onChange={(e) => updateSingleSlider(s.key, Number(e.target.value))}
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
+                  <div className="group">
+                    <Slider item={S(`hsl_${hslBand}_h`, `Rona ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_h`)} onChange={(v) => setKey(`hsl_${hslBand}_h`, v)} onReset={() => setKey(`hsl_${hslBand}_h`, 0)} />
+                    <Slider item={S(`hsl_${hslBand}_s`, `Saturasi ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_s`)} onChange={(v) => setKey(`hsl_${hslBand}_s`, v)} onReset={() => setKey(`hsl_${hslBand}_s`, 0)} />
+                    <Slider item={S(`hsl_${hslBand}_l`, `Luminans ${band.label}`, -100, 100)} value={val(`hsl_${hslBand}_l`)} onChange={(v) => setKey(`hsl_${hslBand}_l`, v)} onReset={() => setKey(`hsl_${hslBand}_l`, 0)} />
                   </div>
-                </div>
+                  <button className="link" onClick={() => setMany(Object.fromEntries(HSL_BANDS.flatMap((b) => ['h', 's', 'l'].map((c) => [`hsl_${b.id}_${c}`, 0]))))}>Reset semua pita HSL</button>
+                </>
               )}
 
-              {/* TAB 4: SIMPAN / EKSPOR */}
-              {activeTab === 'export' && (
-                <div className="ocean-tab-pane">
-                  <div className="ocean-export-box">
-                    <h3>Ekspor Galeri Foto</h3>
-                    <p>Format Full HD yang tajam dan otomatis disesuaikan agar kompatibel dengan seluruh HP Android.</p>
-
-                    <div className="ocean-format-selector">
-                      <button
-                        type="button"
-                        className={`format-option ${format === 'jpeg' ? 'active' : ''}`}
-                        onClick={() => setFormat('jpeg')}
-                      >
-                        <b>JPG / JPEG</b>
-                        <small>Standar Galeri Universal</small>
+              {tab === 'kurva' && (
+                <>
+                  <div className="swatches swatches-4">
+                    {CURVE_CHANNELS.map((c) => (
+                      <button key={c.id} className={curveCh === c.id ? 'on' : ''} style={{ '--c': c.color }} onClick={() => setCurveCh(c.id)}>
+                        <i /><span>{c.label}</span>
                       </button>
-                      <button
-                        type="button"
-                        className={`format-option ${format === 'webp' ? 'active' : ''}`}
-                        onClick={() => setFormat('webp')}
-                      >
-                        <b>WEBP</b>
-                        <small>Modern & Hemat Ukuran</small>
-                      </button>
-                    </div>
-
-                    <div className="ocean-spec-table">
-                      <div className="spec-item">
-                        <span>Resolusi</span>
-                        <b>Full HD (1920px)</b>
-                      </div>
-                      <div className="spec-item">
-                        <span>Ukuran Maksimal</span>
-                        <b>&le; 2.0 MB</b>
-                      </div>
-                      <div className="spec-item">
-                        <span>Target Penyimpanan</span>
-                        <b>Galeri HP (Album: FreeColor)</b>
-                      </div>
-                      <div className="spec-item">
-                        <span>Kecepatan Simpan</span>
-                        <b>Instan (Direct MediaStore)</b>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="ocean-save-primary-btn"
-                      onClick={handleDownload}
-                    >
-                      📸 Simpan ke Galeri HP (Full HD)
-                    </button>
+                    ))}
                   </div>
+                  <div className="curve-box">
+                    <svg viewBox="-4 -4 108 108" className="curve" aria-label="Grafik kurva">
+                      <rect x="0" y="0" width="100" height="100" fill="#f4f9fd" stroke="#d6e6f2" />
+                      {[25, 50, 75].map((g) => (
+                        <g key={g} stroke="#dbe9f4" strokeWidth="0.6">
+                          <line x1={g} y1="0" x2={g} y2="100" />
+                          <line x1="0" y1={g} x2="100" y2={g} />
+                        </g>
+                      ))}
+                      <line x1="0" y1="100" x2="100" y2="0" stroke="#b9cfe0" strokeDasharray="3 3" strokeWidth="0.8" />
+                      {CURVE_CHANNELS.filter((c) => c.id !== curveCh).map((c) => {
+                        const s = val(`cv_${c.id}_s`), m = val(`cv_${c.id}_m`), h = val(`cv_${c.id}_h`);
+                        return s || m || h ? <path key={c.id} d={curvePath(s, m, h)} fill="none" stroke={c.color} strokeOpacity="0.35" strokeWidth="1.2" /> : null;
+                      })}
+                      <path d={curvePath(cv('s'), cv('m'), cv('h'))} fill="none" stroke={cvCh.color} strokeWidth="2.2" strokeLinecap="round" />
+                      {[[25, cv('s')], [50, cv('m')], [75, cv('h')]].map(([x, o]) => (
+                        <circle key={x} cx={x} cy={100 - (x + o * 0.3)} r="2.8" fill="#fff" stroke={cvCh.color} strokeWidth="1.6" />
+                      ))}
+                    </svg>
+                  </div>
+                  <div className="group">
+                    <Slider item={S('s', 'Bayangan', -50, 50)} value={cv('s')} onChange={(v) => setKey(`cv_${curveCh}_s`, v)} onReset={() => setKey(`cv_${curveCh}_s`, 0)} />
+                    <Slider item={S('m', 'Tengah', -50, 50)} value={cv('m')} onChange={(v) => setKey(`cv_${curveCh}_m`, v)} onReset={() => setKey(`cv_${curveCh}_m`, 0)} />
+                    <Slider item={S('h', 'Sorotan', -50, 50)} value={cv('h')} onChange={(v) => setKey(`cv_${curveCh}_h`, v)} onReset={() => setKey(`cv_${curveCh}_h`, 0)} />
+                  </div>
+                  <button className="link" onClick={() => setMany({ [`cv_${curveCh}_s`]: 0, [`cv_${curveCh}_m`]: 0, [`cv_${curveCh}_h`]: 0 })}>Reset kurva {cvCh.label}</button>
+                </>
+              )}
+
+              {tab === 'detail' && (
+                <>
+                  <div className="group">{renderSliders(DETAIL)}</div>
+                  <h3 className="h">Split Toning</h3>
+                  <div className="group">{renderSliders(SPLIT)}</div>
+                </>
+              )}
+
+              {tab === 'simpan' && (
+                <div className="card">
+                  <h3 className="h h-tight">Simpan Foto</h3>
+                  <div className="formats">
+                    <button className={format === 'jpeg' ? 'on' : ''} onClick={() => setFormat('jpeg')}><b>JPG</b><small>Semua galeri</small></button>
+                    <button className={format === 'webp' ? 'on' : ''} onClick={() => setFormat('webp')}><b>WEBP</b><small>Lebih kecil</small></button>
+                  </div>
+                  <dl className="specs">
+                    <div><dt>Resolusi</dt><dd>Full HD (maks. 1920 px)</dd></div>
+                    <div><dt>Ukuran file</dt><dd>≤ 2 MB</dd></div>
+                    <div><dt>Tujuan</dt><dd>Galeri HP · album FreeColor</dd></div>
+                  </dl>
+                  <button className="btn btn-primary btn-block btn-lg" onClick={handleSave} disabled={saving || !active}>
+                    <Icon name="save" /> {saving ? 'Menyimpan…' : 'Simpan Full HD'}
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* Quick Sticky Save Action Bar when in LUTs, AI, or Tune tab */}
-            {activeTab !== 'export' && active && (
-              <div className="ocean-deck-bottom-bar">
-                <button
-                  type="button"
-                  className="ocean-quick-save-btn"
-                  onClick={handleDownload}
-                >
-                  📸 Simpan ke Galeri (Full HD)
-                </button>
-              </div>
-            )}
+            <footer className="panel-foot">
+              <button className="link" onClick={resetAll} disabled={!modified && intensity === 100}>Reset semua</button>
+              <span>{modified ? 'Ada perubahan manual' : 'Sesuai Auto Grading'}</span>
+            </footer>
           </aside>
-        </div>
+        </main>
       )}
 
-      {/* Toast Notifications & Alerts */}
+      {/* ------------------------------------------------ AI menu (separate from Auto Grading) */}
+      {aiOpen && <AiMenu active={active} onClose={() => setAiOpen(false)} />}
+
       {error && assets.length > 0 && (
-        <div className="toast err" role="alert">
-          {error}
-          <button onClick={() => setError('')}>×</button>
-        </div>
+        <div className="toast toast-err" role="alert">{error}<button onClick={() => setError('')} aria-label="Tutup">×</button></div>
       )}
-      {notice && <div className="toast">{notice}</div>}
-      {drop && <div className="drop-veil">Lepas untuk mengunggah</div>}
+      {notice && <div className="toast" role="status">{notice}</div>}
+      {drop && <div className="drop-veil">Lepas untuk membuka foto</div>}
 
       <input
         ref={inputRef}
@@ -1048,11 +695,117 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
         accept="image/*,.heic,.heif,.avif"
         multiple
         hidden
-        onChange={(e) => {
-          uploadFiles(e.target.files);
-          e.target.value = '';
-        }}
+        onChange={(e) => { uploadFiles(e.target.files); e.target.value = ''; }}
       />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- AI menu */
+
+function AiMenu({ active, onClose }) {
+  const [key, setKey] = useState(aiSettings.getKey());
+  const [model, setModel] = useState(aiSettings.getModel());
+  const [show, setShow] = useState(false);
+  const [state, setState] = useState({ busy: '', msg: '', ok: null });
+  const [result, setResult] = useState(null);
+  const saved = aiSettings.getKey();
+
+  const persist = () => {
+    aiSettings.setKey(key);
+    aiSettings.setModel(model);
+  };
+
+  async function onTest() {
+    setState({ busy: 'test', msg: '', ok: null });
+    try {
+      await testKey(key.trim(), model);
+      persist();
+      setState({ busy: '', msg: 'Koneksi berhasil. Key tersimpan di perangkat ini.', ok: true });
+    } catch (err) {
+      setState({ busy: '', msg: err.message, ok: false });
+    }
+  }
+
+  function onSave() {
+    persist();
+    setState({ busy: '', msg: key.trim() ? 'Key tersimpan di perangkat ini.' : 'Key dihapus.', ok: true });
+  }
+
+  function onClear() {
+    setKey('');
+    aiSettings.setKey('');
+    setResult(null);
+    setState({ busy: '', msg: 'Key dihapus dari perangkat.', ok: true });
+  }
+
+  async function onAnalyze() {
+    setState({ busy: 'analyze', msg: '', ok: null });
+    setResult(null);
+    try {
+      const r = await analyzePhoto({ apiKey: aiSettings.getKey(), model: aiSettings.getModel(), imageDataUrl: active.beforeUrl });
+      setResult(r);
+      setState({ busy: '', msg: '', ok: null });
+    } catch (err) {
+      setState({ busy: '', msg: err.message, ok: false });
+    }
+  }
+
+  return (
+    <div className="modal" role="dialog" aria-modal="true" aria-label="Asisten AI" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head">
+          <div>
+            <h2>Asisten AI</h2>
+            <p>Opsional. Terpisah dari Auto Grading, yang tetap jalan tanpa AI.</p>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Tutup"><Icon name="close" /></button>
+        </div>
+
+        <section className="sheet-sec">
+          <h3 className="h h-tight">API Key Gemini</h3>
+          <div className="field">
+            <input
+              type={show ? 'text' : 'password'}
+              value={key}
+              placeholder="Tempel API key dari Google AI Studio"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setKey(e.target.value)}
+            />
+            <button className="link" onClick={() => setShow((v) => !v)}>{show ? 'Sembunyikan' : 'Tampilkan'}</button>
+          </div>
+          <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
+            {AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+          <div className="btn-row">
+            <button className="btn btn-primary" onClick={onSave}>Simpan</button>
+            <button className="btn btn-soft" onClick={onTest} disabled={state.busy === 'test' || !key.trim()}>{state.busy === 'test' ? 'Menguji…' : 'Tes Koneksi'}</button>
+            <button className="btn btn-ghost" onClick={onClear} disabled={!key && !saved}>Hapus</button>
+          </div>
+          {state.msg && <p className={`msg ${state.ok ? 'ok' : 'bad'}`}>{state.msg}</p>}
+          <p className="note">Key hanya disimpan di perangkat ini dan hanya dikirim ke Google saat Anda menekan tombol analisa. Ambil key gratis di aistudio.google.com/apikey.</p>
+        </section>
+
+        <section className="sheet-sec">
+          <h3 className="h h-tight">Saran dari AI untuk foto aktif</h3>
+          <button className="btn btn-primary btn-block" onClick={onAnalyze} disabled={!active || !saved || state.busy === 'analyze'}>
+            <Icon name="sparkle" /> {state.busy === 'analyze' ? 'AI sedang menganalisa…' : 'Minta Saran AI'}
+          </button>
+          {!saved && <p className="note">Simpan API key dulu untuk memakai fitur ini.</p>}
+          {!active && <p className="note">Buka foto terlebih dahulu.</p>}
+          <p className="note">AI hanya memberi saran teks. Ia tidak mengubah slider atau foto Anda.</p>
+          {result && (
+            <div className="ai-out">
+              {result.scene && <p><b>Perairan:</b> {result.scene}</p>}
+              {result.subject && <p><b>Subjek:</b> {result.subject}</p>}
+              {result.problems?.length > 0 && (<><h4>Masalah terdeteksi</h4><ul>{result.problems.map((t, i) => <li key={i}>{t}</li>)}</ul></>)}
+              {result.tips?.length > 0 && (<><h4>Saran grading</h4><ul>{result.tips.map((t, i) => <li key={i}>{t}</li>)}</ul></>)}
+              {result.caption && <p className="caption">“{result.caption}”</p>}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

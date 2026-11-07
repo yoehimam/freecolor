@@ -22,7 +22,7 @@
   "private": "true",
   "description": "FreeColor Underwater — editor foto bawah air",
   "scripts": {
-    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"node --watch server/index.js\"",
+    "dev": "vite",
     "client": "vite",
     "server": "node server/index.js",
     "build": "vite build",

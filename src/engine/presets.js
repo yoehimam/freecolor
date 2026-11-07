@@ -103,13 +103,13 @@ export const PRESETS = {
 
 export const PRESET_IDS = ['freedive', 'kreatif', 'alami', 'super', 'strobe', 'lomba'];
 
-export const OCEAN_LUTS = [
-  { id: 'freedive', name: 'Solstice LUT', tag: 'Signature Freedive', desc: 'Safir laut dalam, skintone hangat & kontras 3D', icon: '🌊', color: '#00d4ff' },
-  { id: 'alami', name: 'Tropical Azure', tag: 'Dangkal & Karang', desc: 'Air toska jernih, pasir putih cerah khas tropis', icon: '🏖️', color: '#38d6c4' },
-  { id: 'kreatif', name: 'Deep Ocean', tag: 'Samudra 15m+', desc: 'Menembus kabut biru tebal & menonjolkan biota laut', icon: '🐋', color: '#3b82f6' },
-  { id: 'super', name: 'Emerald Reef', tag: 'Air Hijau / Danau', desc: 'Koreksi dominasi hijau keruh & pulihkan spektrum merah', icon: '🌿', color: '#10b981' },
-  { id: 'strobe', name: 'Coral Vivid', tag: 'Macro & Karang', desc: 'Warna karang menyala, polip tajam & biota hidup', icon: '🪸', color: '#f59e0b' },
-  { id: 'lomba', name: 'Natural Master', tag: 'Standar Juri', desc: 'Koreksi seimbang & autentik tanpa oversaturasi', icon: '🏆', color: '#a78bfa' },
+export const LOOKS = [
+  { id: 'freedive', name: 'Biru Samudra', tag: 'Signature', desc: 'Safir laut, kulit hangat, kontras 3D', color: '#1d78e6' },
+  { id: 'alami', name: 'Tropis Jernih', tag: 'Dangkal & karang', desc: 'Air toska bening, pasir putih cerah', color: '#16b3c4' },
+  { id: 'kreatif', name: 'Laut Dalam', tag: '15 m ke bawah', desc: 'Tembus kabut biru, biota menonjol', color: '#3a5bd9' },
+  { id: 'super', name: 'Hijau Zamrud', tag: 'Air hijau / danau', desc: 'Netralkan hijau keruh, pulihkan merah', color: '#12a374' },
+  { id: 'strobe', name: 'Karang Hidup', tag: 'Makro & strobe', desc: 'Warna karang menyala, detail tajam', color: '#f08a24' },
+  { id: 'lomba', name: 'Natural Juri', tag: 'Lomba foto', desc: 'Seimbang, autentik, tidak berlebihan', color: '#7a5af0' },
 ];
 
 const HSL_RANGES = {};

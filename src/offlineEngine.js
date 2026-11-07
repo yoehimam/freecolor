@@ -5,6 +5,7 @@
 import { measure, autoParams, describe } from './engine/measure.js';
 import { processImage } from './engine/pipeline.js';
 import { PRESETS } from './engine/presets.js';
+import { applyGrade } from './engine/grade.js';
 
 // Optimal display and processing thresholds tailored for Realme 5i hardware
 const PREVIEW_MAX_EDGE = 1080; // 1080px is retina-sharp on 720p screen, renders in ~120ms with zero lag
@@ -126,6 +127,7 @@ export const offlineEngine = {
       { data: pixelCopy, width: srcData.width, height: srcData.height, channels: 4 },
       params
     );
+    applyGrade(res.data, srcData.width, srcData.height, params);
 
     // Put rendered pixels into canvas
     const canvas = document.createElement('canvas');
@@ -167,6 +169,7 @@ export const offlineEngine = {
       { data: pixelCopy, width, height, channels: 4 },
       params
     );
+    applyGrade(res.data, width, height, params);
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
