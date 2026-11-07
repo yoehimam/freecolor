@@ -90,6 +90,7 @@ export default function Compare({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
+          <div className="cmp-divider-line" />
           <div
             className="cmp-knob"
             role="slider"

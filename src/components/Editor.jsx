@@ -91,8 +91,8 @@ function Slider({ item, value, onChange, onReset, onCommit }) {
   return (
     <div className="sl" title={hint}>
       <div className="sl-top">
-        <label>{label}</label>
-        <output>{min < 0 && shown > 0 ? `+${shown}` : shown}{unit}</output>
+        <label onClick={onReset} title="Klik / ketuk untuk reset">{label}</label>
+        <output onClick={onReset} title="Klik / ketuk untuk reset">{min < 0 && shown > 0 ? `+${shown}` : shown}{unit}</output>
       </div>
       <input
         type="range"
