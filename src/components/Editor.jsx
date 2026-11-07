@@ -486,14 +486,18 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                 <path d="M8 30v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </div>
-            <h1>{uploading ? 'Mengunggah…' : 'Masukkan Foto Bawah Air'}</h1>
+            <h1>{uploading ? 'Memproses Foto…' : 'Buka Foto Bawah Air'}</h1>
             <p>
-              Tarik-lepas, tempel dari clipboard (Ctrl+V), atau telusuri file.
+              Pilih foto langsung dari Galeri HP atau Kamera.
               <br />
-              JPG, PNG, WEBP, HEIC · maksimal 25 MB · hingga 8 foto sekaligus.
+              JPG, PNG, WEBP, HEIC · Pemrosesan 100% Offline Langsung di HP.
             </p>
-            <span className="btn btn-solid">{uploading ? 'Sebentar…' : 'Telusuri Foto'}</span>
-            {!aiEnabled && <small>Kalibrasi optik otomatis aktif · siap memulihkan warna seketika</small>}
+            <span className="btn btn-solid" style={{ padding: '14px 28px', fontSize: '15px' }}>
+              {uploading ? 'Sedang Memproses…' : '📸 Pilih dari Galeri HP'}
+            </span>
+            <small style={{ marginTop: '8px', color: '#00d4ff' }}>
+              Restorasi spektrum warna otomatis · Hasil jernih alami
+            </small>
           </div>
           {error && <p className="ed-error">{error}</p>}
         </section>
@@ -545,7 +549,7 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                 >
                   {full ? 'Keluar penuh' : 'Layar penuh'}
                 </button>
-                <button className="ghost-btn" onClick={() => inputRef.current?.click()}>+ Foto</button>
+                <button className="btn-solid" style={{ padding: '6px 14px', fontSize: '11px', borderRadius: '8px' }} onClick={() => inputRef.current?.click()}>+ Foto</button>
               </div>
             </div>
 
