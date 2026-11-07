@@ -603,11 +603,10 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
 
           const newG = gVal * fg;
           const newB = bVal * fb;
-          // Non-warm pixels (water column, sandy seabed, shadows) physically cannot have R exceed 0.46 * G or 0.42 * B.
-          const isWarmPixel = sR0[i] > sG0[i] * 0.82 && sR0[i] > sB0[i] * 0.75;
-          const maxLinearR = isWarmPixel
-            ? (sR0[i] < sG0[i] ? newG * 0.95 : 1.35)
-            : Math.min(newG * 0.46, newB * 0.42);
+          // Open water column has naturally low red; prevent water from turning purple
+          // while fully permitting subjects (corals, fish, skin, sand) to restore rich warm colors
+          const isOpenWater = srcWater[i] > 0.35 && waterSmooth[i] > 0.35 && subjectMask[i] < 0.25;
+          const maxLinearR = isOpenWater ? Math.min(newG * 0.75, newB * 0.70) : 1.45;
           R[i] = Math.min(maxLinearR, rVal * fr);
           G[i] = newG;
           B[i] = newB;
@@ -1455,14 +1454,14 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
       // Protect deep black wetsuit shadows and bright white bubbles/foam
       if (l <= 0.08 || l >= 0.92) continue;
 
-      // Anti-violet & anti-magenta guard for open water & distant blue reefs:
-      // In ocean water, Red must NEVER exceed ~0.40 * Green or ~0.36 * Blue.
-      // If R exceeds this on blue-dominant pixels, the water/background turns into unnatural lilac/violet/magenta.
-      if (srcWater[i] > 0.16 && (waterSmooth[i] > 0.35 || subjectMask[i] < 0.42)) {
-        const violetExcess = Math.max(0, r0 - g0 * 0.38);
-        if (violetExcess > 0.004) {
-          const vFix = clamp01(srcWater[i] * 1.4) * clamp01(1 - subjectMask[i] * 0.9) * 0.85;
-          r0 = Math.min(r0, r0 * (1 - vFix * 0.7) + g0 * 0.32 * vFix * 0.7);
+      // Anti-violet & anti-magenta guard for deep open water column:
+      // In ocean water, Red must NEVER exceed ~0.42 * Green or ~0.38 * Blue.
+      // Strictly target true open water (srcWater > 0.28) and preserve sandy seabeds and fauna!
+      if (srcWater[i] > 0.28 && waterSmooth[i] > 0.42 && subjectMask[i] < 0.25) {
+        const violetExcess = Math.max(0, r0 - g0 * 0.40);
+        if (violetExcess > 0.005) {
+          const vFix = clamp01(srcWater[i] * 1.2) * clamp01(1 - subjectMask[i] * 1.2) * 0.75;
+          r0 = Math.min(r0, r0 * (1 - vFix * 0.7) + g0 * 0.35 * vFix * 0.7);
         }
       }
 

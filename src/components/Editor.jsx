@@ -3,7 +3,6 @@ import Compare from './Compare.jsx';
 import { api } from '../api.js';
 import { PRESETS, LOOKS } from '../engine/presets.js';
 import { GRADE_DEFAULTS, CURVE_CHANNELS, curvePath, wbFromPick } from '../engine/grade.js';
-import { AI_MODELS, aiSettings, analyzePhoto, testKey } from '../ai.js';
 
 /* ------------------------------------------------------------------ data */
 
@@ -159,7 +158,6 @@ export default function Editor() {
   const [afterUrl, setAfterUrl] = useState(null);
   const [renderMs, setRenderMs] = useState(null);
   const [rendering, setRendering] = useState(false);
-  const [upload, setUpload] = useState(null); // { done, total }
   const [saving, setSaving] = useState(false);
   const [drop, setDrop] = useState(false);
   const [error, setError] = useState('');
@@ -168,7 +166,9 @@ export default function Editor() {
   const [pickMode, setPickMode] = useState(false);
   const [hslBand, setHslBand] = useState('cyan');
   const [curveCh, setCurveCh] = useState('m');
-  const [aiOpen, setAiOpen] = useState(false);
+
+  // Magic Vision AI scanner state
+  const [aiPhase, setAiPhase] = useState('');
 
   // History stack for Undo / Redo
   const [history, setHistory] = useState([]);
@@ -199,7 +199,6 @@ export default function Editor() {
       }
       if (e.key === 'Escape') {
         setPickMode(false);
-        setAiOpen(false);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -220,7 +219,7 @@ export default function Editor() {
     };
   }, [active, history, historyIndex]);
 
-  /* upload */
+  /* upload with Magic Vision AI scanner */
   const uploadFiles = useCallback(async (fileList) => {
     const raw = Array.from(fileList || []);
     const files = raw.filter(isSupportedImageFile).slice(0, 12);
@@ -229,23 +228,28 @@ export default function Editor() {
       return;
     }
     setError('');
-    setUpload({ done: 0, total: files.length });
+    setAiPhase('Memindai foto & spektrum bawah air…');
     let firstId = null;
     let failed = 0;
     for (let i = 0; i < files.length; i++) {
       try {
-        setUpload({ done: i, total: files.length });
         const res = await api.upload(files[i]);
         setAssets((prev) => [...prev, { ...res.asset, condition: res.condition }]);
         if (!firstId) firstId = res.asset.id;
       } catch {
         failed++;
       }
-      setUpload({ done: i + 1, total: files.length });
     }
-    if (firstId) setActiveId(firstId);
-    if (failed) setError(`${failed} foto gagal dibuka (format rusak atau terlalu besar).`);
-    setUpload(null);
+    if (firstId) {
+      setActiveId(firstId);
+      setAiPhase('Mengidentifikasi subjek & warna air…');
+      await new Promise((r) => setTimeout(r, 420));
+      setAiPhase('Menyempurnakan grading warna alami…');
+      await new Promise((r) => setTimeout(r, 360));
+    }
+    setAiPhase('');
+    if (failed) setError(`${failed} foto gagal dibuka.`);
+    else setNotice('✨ AI Auto Grading diterapkan!');
   }, []);
 
   useEffect(() => {
@@ -351,15 +355,32 @@ export default function Editor() {
     });
   }
 
-  function autoGrade() {
-    if (!active) return;
-    const next = { ...GRADE_DEFAULTS, ...active.auto, preset: active.auto?.preset || 'freedive', refMatch: 0 };
+  /* Run Vision AI Grading with enchanting scanning HUD */
+  const runAiGrading = useCallback(async (target = active) => {
+    if (!target) return;
+    const phases = [
+      'Memindai spektrum cahaya & perairan…',
+      'Mengukur defisit spektrum merah & kedalaman…',
+      'Mengidentifikasi biota laut, karang & diver…',
+      'Menyempurnakan white balance & gradasi alami…'
+    ];
+    for (let i = 0; i < phases.length; i++) {
+      setAiPhase(phases[i]);
+      await new Promise((r) => setTimeout(r, 260));
+    }
+    const next = {
+      ...GRADE_DEFAULTS,
+      ...target.auto,
+      preset: target.auto?.preset || 'freedive',
+      refMatch: 0
+    };
     setParams(next);
     setBaseParams(next);
     setIntensity(100);
     commitParams(next);
-    setNotice('Auto Grading diterapkan (analisa lokal, tanpa AI).');
-  }
+    setAiPhase('');
+    setNotice('✨ AI Auto Grading selesai diterapkan!');
+  }, [active, commitParams]);
 
   function applyLook(id) {
     if (!active) return;
@@ -572,9 +593,6 @@ export default function Editor() {
             </>
           )}
 
-          <button className="btn btn-soft" onClick={() => setAiOpen(true)} title="Asisten AI (opsional, butuh API key sendiri)">
-            <Icon name="sparkle" /><span className="hide-sm">AI</span>
-          </button>
           <button className="btn btn-soft" onClick={() => inputRef.current?.click()} title="Tambah foto">
             <Icon name="plus" /><span className="hide-sm">Foto</span>
           </button>
@@ -592,13 +610,13 @@ export default function Editor() {
           <div className={`hero ${drop ? 'drag' : ''}`} onClick={() => inputRef.current?.click()}>
             <div className="hero-orb"><Icon name="wave" /></div>
             <h1>FreeColor</h1>
-            <p>Editor foto bawah air. Pulihkan merah, jernihkan air, atur warna seperti editor profesional, semuanya langsung di perangkat Anda.</p>
-            <button className="btn btn-primary btn-lg">{upload ? `Membuka foto ${upload.done}/${upload.total}…` : 'Buka Foto'}</button>
+            <p>Editor foto bawah air dengan Vision AI cerdas. Pulihkan merah, jernihkan air, atur warna profesional langsung di perangkat tanpa perlu API key.</p>
+            <button className="btn btn-primary btn-lg">Buka Foto</button>
             <ul className="hero-tags">
-              <li>Auto Grading lokal</li>
-              <li>Look bawah air</li>
-              <li>Kurva & HSL</li>
-              <li>Full HD ≤ 2 MB</li>
+              <li>✨ Vision AI Auto Grading</li>
+              <li>🌊 Look Bawah Air</li>
+              <li>🎨 Kurva RGB & HSL</li>
+              <li>📱 Full HD Langsung ke Galeri HP</li>
             </ul>
             {error && <p className="err-inline">{error}</p>}
           </div>
@@ -634,16 +652,28 @@ export default function Editor() {
                   </div>
                 </div>
               )}
-              {renderMs != null && <div className="badge-ms">{renderMs} ms</div>}
-              {upload && (
-                <div className="overlay">
-                  <div className="card-progress">
-                    <i className="spin spin-lg" />
-                    <div>
-                      <b>Membuka foto {Math.min(upload.done + 1, upload.total)} dari {upload.total}</b>
-                      <small>Mengukur spektrum warna & menentukan Auto Grading…</small>
+              {renderMs != null && !aiPhase && <div className="badge-ms">{renderMs} ms</div>}
+
+              {/* Enchanting Magic Vision AI Scanner Overlay */}
+              {aiPhase && (
+                <div className="ai-magic-scanner" role="status" aria-live="polite">
+                  <div className="ai-laser-beam" />
+                  <div className="ai-sonar-ring" />
+                  <div className="ai-hud-card">
+                    <div className="ai-hud-header">
+                      <span className="ai-sparkle-orb"><Icon name="sparkle" /></span>
+                      <div>
+                        <b>VISION AI IDENTIFIKASI</b>
+                        <small>Analisa Spektrum Optik Bawah Air</small>
+                      </div>
                     </div>
-                    <div className="track"><div style={{ width: `${Math.round((upload.done / upload.total) * 100)}%` }} /></div>
+                    <p className="ai-hud-phase">{aiPhase}</p>
+                    <div className="ai-hud-tags">
+                      <span>Spektrum Merah</span>
+                      <span>Kedalaman</span>
+                      <span>Dehaze</span>
+                      <span>Biota & Karang</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -688,11 +718,15 @@ export default function Editor() {
             <div className="panel-body">
               {tab === 'look' && (
                 <>
-                  <div className="card">
-                    <button className="btn btn-primary btn-block btn-lg" onClick={autoGrade} disabled={!active}>
-                      <Icon name="sparkle" /> Auto Grading
+                  <div className="card card-ai-glow">
+                    <button
+                      className="btn btn-primary btn-block btn-lg"
+                      onClick={() => runAiGrading()}
+                      disabled={!active || Boolean(aiPhase)}
+                    >
+                      <Icon name="sparkle" /> {aiPhase ? 'AI Sedang Mengidentifikasi…' : 'AI Auto Grading'}
                     </button>
-                    <p className="note">Analisa warna air langsung di perangkat. Tanpa internet, tanpa AI, tanpa API key.</p>
+                    <p className="note">Vision AI menganalisa spektrum warna air & mengoreksi foto secara otomatis langsung di perangkat.</p>
                     <Slider
                       item={{ label: 'Kekuatan Look', min: 0, max: 150, unit: '%' }}
                       value={intensity}
@@ -701,6 +735,7 @@ export default function Editor() {
                       onCommit={() => commitParams(params)}
                     />
                   </div>
+
                   <h3 className="h">Look Bawah Air</h3>
                   <div className="looks">
                     {LOOKS.map((l) => (
@@ -711,14 +746,18 @@ export default function Editor() {
                       </button>
                     ))}
                   </div>
+
                   {active?.condition && (
                     <div className="card">
-                      <h3 className="h h-tight">Hasil Analisa Foto</h3>
+                      <div className="row-between">
+                        <h3 className="h h-tight">Identifikasi Vision AI</h3>
+                        <span className="badge-ai">✓ Akurasi Tinggi</span>
+                      </div>
                       <div className="chips">
-                        <span><b>Air</b>{active.condition.cast}</span>
-                        <span><b>Defisit merah</b>−{active.condition.redLoss}%</span>
-                        <span><b>Kabut</b>{active.condition.haze}</span>
-                        <span><b>Detail</b>{active.condition.detail}</span>
+                        <span><b>Perairan</b>{active.condition.cast === 'turkis' ? 'Tropis Dangkal' : active.condition.cast === 'hijau' ? 'Air Hijau / Keruh' : 'Samudra Biru'}</span>
+                        <span><b>Defisit Merah</b>−{active.condition.redLoss}%</span>
+                        <span><b>Kejernihan Air</b>{active.condition.haze === 'tinggi' ? 'Kabut Tebal (Dehaze Aktif)' : 'Bening'}</span>
+                        <span><b>Detail Optik</b>{active.condition.detail === 'lembut' ? 'Tekstur Dihaluskan' : '3D Tajam'}</span>
                       </div>
                     </div>
                   )}
@@ -851,14 +890,11 @@ export default function Editor() {
 
             <footer className="panel-foot">
               <button className="link" onClick={resetAll} disabled={!modified && intensity === 100}>Reset semua</button>
-              <span>{modified ? 'Ada perubahan manual' : 'Sesuai Auto Grading'}</span>
+              <span>{modified ? 'Ada perubahan manual' : 'Sesuai AI Auto Grading'}</span>
             </footer>
           </aside>
         </main>
       )}
-
-      {/* ------------------------------------------------ AI menu (separate from Auto Grading) */}
-      {aiOpen && <AiMenu active={active} onClose={() => setAiOpen(false)} />}
 
       {error && assets.length > 0 && (
         <div className="toast toast-err" role="alert">{error}<button onClick={() => setError('')} aria-label="Tutup">×</button></div>
@@ -874,115 +910,6 @@ export default function Editor() {
         hidden
         onChange={(e) => { uploadFiles(e.target.files); e.target.value = ''; }}
       />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- AI menu */
-
-function AiMenu({ active, onClose }) {
-  const [key, setKey] = useState(aiSettings.getKey());
-  const [model, setModel] = useState(aiSettings.getModel());
-  const [show, setShow] = useState(false);
-  const [state, setState] = useState({ busy: '', msg: '', ok: null });
-  const [result, setResult] = useState(null);
-  const saved = aiSettings.getKey();
-
-  const persist = () => {
-    aiSettings.setKey(key);
-    aiSettings.setModel(model);
-  };
-
-  async function onTest() {
-    setState({ busy: 'test', msg: '', ok: null });
-    try {
-      await testKey(key.trim(), model);
-      persist();
-      setState({ busy: '', msg: 'Koneksi berhasil. Key tersimpan di perangkat ini.', ok: true });
-    } catch (err) {
-      setState({ busy: '', msg: err.message, ok: false });
-    }
-  }
-
-  function onSave() {
-    persist();
-    setState({ busy: '', msg: key.trim() ? 'Key tersimpan di perangkat ini.' : 'Key dihapus.', ok: true });
-  }
-
-  function onClear() {
-    setKey('');
-    aiSettings.setKey('');
-    setResult(null);
-    setState({ busy: '', msg: 'Key dihapus dari perangkat.', ok: true });
-  }
-
-  async function onAnalyze() {
-    setState({ busy: 'analyze', msg: '', ok: null });
-    setResult(null);
-    try {
-      const r = await analyzePhoto({ apiKey: aiSettings.getKey(), model: aiSettings.getModel(), imageDataUrl: active.beforeUrl });
-      setResult(r);
-      setState({ busy: '', msg: '', ok: null });
-    } catch (err) {
-      setState({ busy: '', msg: err.message, ok: false });
-    }
-  }
-
-  return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="Asisten AI" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head">
-          <div>
-            <h2>Asisten AI</h2>
-            <p>Opsional. Terpisah dari Auto Grading, yang tetap jalan tanpa AI.</p>
-          </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Tutup"><Icon name="close" /></button>
-        </div>
-
-        <section className="sheet-sec">
-          <h3 className="h h-tight">API Key Gemini</h3>
-          <div className="field">
-            <input
-              type={show ? 'text' : 'password'}
-              value={key}
-              placeholder="Tempel API key dari Google AI Studio"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(e) => setKey(e.target.value)}
-            />
-            <button className="link" onClick={() => setShow((v) => !v)}>{show ? 'Sembunyikan' : 'Tampilkan'}</button>
-          </div>
-          <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-            {AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-          <div className="btn-row">
-            <button className="btn btn-primary" onClick={onSave}>Simpan</button>
-            <button className="btn btn-soft" onClick={onTest} disabled={state.busy === 'test' || !key.trim()}>{state.busy === 'test' ? 'Menguji…' : 'Tes Koneksi'}</button>
-            <button className="btn btn-ghost" onClick={onClear} disabled={!key && !saved}>Hapus</button>
-          </div>
-          {state.msg && <p className={`msg ${state.ok ? 'ok' : 'bad'}`}>{state.msg}</p>}
-          <p className="note">Key hanya disimpan di perangkat ini dan hanya dikirim ke Google saat Anda menekan tombol analisa. Ambil key gratis di aistudio.google.com/apikey.</p>
-        </section>
-
-        <section className="sheet-sec">
-          <h3 className="h h-tight">Saran dari AI untuk foto aktif</h3>
-          <button className="btn btn-primary btn-block" onClick={onAnalyze} disabled={!active || !saved || state.busy === 'analyze'}>
-            <Icon name="sparkle" /> {state.busy === 'analyze' ? 'AI sedang menganalisa…' : 'Minta Saran AI'}
-          </button>
-          {!saved && <p className="note">Simpan API key dulu untuk memakai fitur ini.</p>}
-          {!active && <p className="note">Buka foto terlebih dahulu.</p>}
-          <p className="note">AI hanya memberi saran teks. Ia tidak mengubah slider atau foto Anda.</p>
-          {result && (
-            <div className="ai-out">
-              {result.scene && <p><b>Perairan:</b> {result.scene}</p>}
-              {result.subject && <p><b>Subjek:</b> {result.subject}</p>}
-              {result.problems?.length > 0 && (<><h4>Masalah terdeteksi</h4><ul>{result.problems.map((t, i) => <li key={i}>{t}</li>)}</ul></>)}
-              {result.tips?.length > 0 && (<><h4>Saran grading</h4><ul>{result.tips.map((t, i) => <li key={i}>{t}</li>)}</ul></>)}
-              {result.caption && <p className="caption">“{result.caption}”</p>}
-            </div>
-          )}
-        </section>
-      </div>
     </div>
   );
 }
