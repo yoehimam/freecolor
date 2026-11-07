@@ -5,7 +5,7 @@
 import { measure, autoParams, describe } from './engine/measure.js';
 import { processImage } from './engine/pipeline.js';
 import { PRESETS } from './engine/presets.js';
-import { applyGrade } from './engine/grade.js';
+import { applyGrade, GRADE_DEFAULTS } from './engine/grade.js';
 import { registerPlugin, Capacitor } from '@capacitor/core';
 
 const FreeColorGallery = registerPlugin('FreeColorGallery');
@@ -18,11 +18,30 @@ const EXPORT_MAX_EDGE = 1920;  // 1920px Full HD: crisp for social media & print
 const assetStore = new Map();
 let idCounter = 1;
 
+// Instant Look & Render cache (keyed by assetId + hash of parameters)
+const renderCache = new Map();
+const MAX_RENDER_CACHE = 60;
+
+function getParamsKey(assetId, p) {
+  if (!p) return String(assetId);
+  return `${assetId}:${p.preset || ''}:${p.redRestore || 0}:${p.veil || 0}:${p.attenuation || 0}:${p.waterLight || 0}:${p.waterTint || 0}:${p.skinTone || 0}:${p.clarity || 0}:${p.sharpen || 0}:${p.vibrance || 0}:${p.saturation || 0}:${p.contrast || 0}:${p.exposure || 0}:${p.temperature || 0}:${p.tint || 0}:${p.shadows || 0}:${p.highlight || 0}:${p.whites || 0}:${p.blacks || 0}:${p.fade || 0}:${p.vignette || 0}:${p.wbR || 1}:${p.wbG || 1}:${p.wbB || 1}:${p.neutral || 0}:${p.rolloff || 0}:${p.spotRemoval || 0}`;
+}
+
+function putCache(key, value) {
+  if (renderCache.size >= MAX_RENDER_CACHE) {
+    const firstKey = renderCache.keys().next().value;
+    renderCache.delete(firstKey);
+  }
+  renderCache.set(key, value);
+}
+
 // Dedicated Background Web Worker for 100% non-blocking UI rendering
 let renderWorker = null;
 let reqCounter = 0;
 let lastWorkerAssetId = null;
 const workerPromises = new Map();
+let isWorkerBusy = false;
+let pendingWorkerTask = null;
 
 function initWorker() {
   if (typeof window === 'undefined' || !window.Worker) return null;
@@ -30,17 +49,33 @@ function initWorker() {
     try {
       renderWorker = new Worker(new URL('./worker/pipeline.worker.js', import.meta.url), { type: 'module' });
       renderWorker.onmessage = (e) => {
-        const { id, type, buffer, width, height, ms, metrics } = e.data;
+        const { id, type, buffer, width, height, ms, metrics, error } = e.data;
         if (type === 'renderDone') {
-          const resolver = workerPromises.get(id);
-          if (resolver) {
+          const entry = workerPromises.get(id);
+          if (entry) {
             workerPromises.delete(id);
-            resolver({ buffer, width, height, ms, metrics });
+            entry.resolve({ buffer, width, height, ms, metrics });
+          }
+          checkNextWorkerTask();
+        } else if (type === 'renderError') {
+          const entry = workerPromises.get(id);
+          if (entry) {
+            workerPromises.delete(id);
+            entry.reject(new Error(error || 'Render error'));
+          }
+          checkNextWorkerTask();
+        } else if (type === 'initSourceDone') {
+          const entry = workerPromises.get(id);
+          if (entry) {
+            workerPromises.delete(id);
+            entry.resolve();
           }
         }
       };
       renderWorker.onerror = (err) => {
         console.warn('Pipeline worker error:', err);
+        isWorkerBusy = false;
+        checkNextWorkerTask();
       };
     } catch (e) {
       console.warn('Worker initialization fallback:', e);
@@ -48,6 +83,39 @@ function initWorker() {
     }
   }
   return renderWorker;
+}
+
+function checkNextWorkerTask() {
+  isWorkerBusy = false;
+  if (pendingWorkerTask) {
+    const task = pendingWorkerTask;
+    pendingWorkerTask = null;
+    executeWorkerTask(task);
+  }
+}
+
+function executeWorkerTask(task) {
+  const { msgId, msg, transfer, resolve, reject } = task;
+  isWorkerBusy = true;
+  workerPromises.set(msgId, { resolve, reject });
+  renderWorker.postMessage(msg, transfer);
+}
+
+function scheduleWorkerRender(msg, transfer = []) {
+  const msgId = ++reqCounter;
+  msg.id = msgId;
+
+  return new Promise((resolve, reject) => {
+    if (!isWorkerBusy) {
+      executeWorkerTask({ msgId, msg, transfer, resolve, reject });
+    } else {
+      // Coalesce: if user is moving sliders rapidly, drop older stale requests
+      if (pendingWorkerTask) {
+        pendingWorkerTask.reject(new Error('Superseded by newer render request'));
+      }
+      pendingWorkerTask = { msgId, msg, transfer, resolve, reject };
+    }
+  });
 }
 
 /**
@@ -98,6 +166,58 @@ function loadImageFromFile(file) {
   });
 }
 
+/**
+ * Pre-warm the 6 core looks in background worker during idle time.
+ * Once pre-warmed, clicking any look button returns in 0.00ms instantly!
+ */
+async function prewarmCoreLooks(assetId, autoParams, w, h) {
+  const wkr = initWorker();
+  if (!wkr) return;
+
+  const coreLooks = ['freedive', 'alami', 'kreatif', 'super', 'strobe', 'lomba'];
+  for (const lookId of coreLooks) {
+    // If user changed photos, cancel remaining prewarms
+    if (lastWorkerAssetId !== assetId) break;
+
+    const lookParams = {
+      ...GRADE_DEFAULTS,
+      ...(autoParams || {}),
+      ...(PRESETS[lookId]?.base || {}),
+      preset: lookId,
+      refMatch: 0,
+    };
+    const key = getParamsKey(assetId, lookParams);
+    if (renderCache.has(key)) continue;
+
+    try {
+      // Yield to let any active user interactions take priority
+      await new Promise((r) => setTimeout(r, 60));
+      if (lastWorkerAssetId !== assetId) break;
+
+      const res = await scheduleWorkerRender({
+        type: 'render',
+        assetId,
+        width: w,
+        height: h,
+        params: lookParams,
+      });
+
+      const clampedBytes = new Uint8ClampedArray(res.buffer);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const outImgData = new ImageData(clampedBytes, w, h);
+      ctx.putImageData(outImgData, 0, 0);
+
+      const renderUrl = canvas.toDataURL('image/jpeg', 0.85);
+      putCache(key, { url: renderUrl, metrics: res.metrics });
+    } catch {
+      // Prewarm superseded or skipped; ignore silently
+    }
+  }
+}
+
 export const offlineEngine = {
   isAvailable: true,
 
@@ -106,7 +226,7 @@ export const offlineEngine = {
     const origWidth = img.naturalWidth || img.width;
     const origHeight = img.naturalHeight || img.height;
 
-    // Create 1080px view version for real-time silky smooth editing on Snapdragon 665
+    // Create 800px view version for real-time silky smooth editing on Snapdragon 665
     const { imageData: viewImageData, width: viewW, height: viewH, canvas: viewCanvas } = await scaleImageToImageData(img, PREVIEW_MAX_EDGE);
     const viewUrl = viewCanvas.toDataURL('image/jpeg', 0.85);
 
@@ -145,19 +265,30 @@ export const offlineEngine = {
     });
 
     // Initialize background worker cache early for instant subsequent renders
+    lastWorkerAssetId = assetId;
     const wkr = initWorker();
     if (wkr) {
       const bufCopy = viewImageData.data.slice(0).buffer;
-      wkr.postMessage(
-        {
-          id: ++reqCounter,
-          type: 'initSource',
-          buffer: bufCopy,
-          width: viewW,
-          height: viewH,
-        },
-        [bufCopy]
-      );
+      const initPromise = new Promise((resolve, reject) => {
+        const msgId = ++reqCounter;
+        workerPromises.set(msgId, { resolve, reject });
+        wkr.postMessage(
+          {
+            id: msgId,
+            type: 'initSource',
+            assetId,
+            buffer: bufCopy,
+            width: viewW,
+            height: viewH,
+          },
+          [bufCopy]
+        );
+      });
+
+      // Background pre-warm looks once source analysis finishes
+      initPromise.then(() => {
+        prewarmCoreLooks(assetId, auto, viewW, viewH);
+      }).catch(() => {});
     }
 
     return { asset, condition };
@@ -174,44 +305,55 @@ export const offlineEngine = {
     const w = srcData.width;
     const h = srcData.height;
 
-    // Use background Web Worker to execute heavy optical pipeline off the main UI thread.
-    // This guarantees 60 FPS silky smooth UI response with ZERO freezing when clicking Looks or dragging sliders.
+    // 1. Instant Cache Check: If this Look or slider state was already rendered, return instantly in 0ms!
+    const cacheKey = getParamsKey(assetId, params);
+    if (renderCache.has(cacheKey)) {
+      const cached = renderCache.get(cacheKey);
+      record.lastRenderUrl = cached.url;
+      return {
+        url: cached.url,
+        width: w,
+        height: h,
+        ms: 0,
+        metrics: cached.metrics,
+        params,
+      };
+    }
+
+    // 2. Background Web Worker Pipeline
+    // Guarantees 60 FPS silky smooth UI response with ZERO freezing when clicking Looks or dragging sliders.
     const wkr = initWorker();
     if (wkr) {
+      // Re-initialize worker source only if the user switched to a different active photo
       if (lastWorkerAssetId !== assetId) {
         lastWorkerAssetId = assetId;
         const initCopy = srcData.data.slice(0).buffer;
-        wkr.postMessage(
-          {
-            id: ++reqCounter,
-            type: 'initSource',
-            buffer: initCopy,
-            width: w,
-            height: h,
-          },
-          [initCopy]
-        );
+        await new Promise((resolve, reject) => {
+          const msgId = ++reqCounter;
+          workerPromises.set(msgId, { resolve, reject });
+          wkr.postMessage(
+            {
+              id: msgId,
+              type: 'initSource',
+              assetId,
+              buffer: initCopy,
+              width: w,
+              height: h,
+            },
+            [initCopy]
+          );
+        });
       }
 
-      const msgId = ++reqCounter;
-      const workerPromise = new Promise((resolve) => {
-        workerPromises.set(msgId, resolve);
+      // Worker already has the raw source cached in memory; zero-copy dispatch!
+      const res = await scheduleWorkerRender({
+        type: 'render',
+        assetId,
+        width: w,
+        height: h,
+        params,
       });
 
-      const copy = srcData.data.slice(0).buffer;
-      wkr.postMessage(
-        {
-          id: msgId,
-          type: 'render',
-          buffer: copy,
-          width: w,
-          height: h,
-          params,
-        },
-        [copy]
-      );
-
-      const res = await workerPromise;
       const clampedBytes = new Uint8ClampedArray(res.buffer);
       const canvas = document.createElement('canvas');
       canvas.width = w;
@@ -222,6 +364,9 @@ export const offlineEngine = {
 
       const renderUrl = canvas.toDataURL('image/jpeg', 0.85);
       record.lastRenderUrl = renderUrl;
+
+      // Cache this result for instant 0ms recall
+      putCache(cacheKey, { url: renderUrl, metrics: res.metrics });
 
       return {
         url: renderUrl,
@@ -251,6 +396,7 @@ export const offlineEngine = {
 
     const renderUrl = canvas.toDataURL('image/jpeg', 0.85);
     record.lastRenderUrl = renderUrl;
+    putCache(cacheKey, { url: renderUrl, metrics: res.metrics });
 
     const ms = Math.round(performance.now() - t0);
     return {
@@ -328,106 +474,61 @@ export const offlineEngine = {
         gallerySaved = Boolean(nativeRes?.success);
         galleryPath = nativeRes?.album || 'Pictures/FreeColor';
       } catch (err) {
-        console.error('Gagal menyimpan via native gallery plugin:', err);
-        throw new Error('Gagal menyimpan ke galeri HP: ' + (err.message || err));
+        console.warn('Native gallery save fallback to browser blob download:', err);
       }
     }
 
-    const downloadUrl = blob ? URL.createObjectURL(blob) : '';
+    const blobUrl = URL.createObjectURL(blob);
     return {
-      blob,
-      url: downloadUrl,
-      base64Data,
+      url: blobUrl,
       filename,
-      sizeBytes: blob ? blob.size : estimatedBytes,
+      sizeBytes: estimatedBytes,
       gallerySaved,
       galleryPath
     };
   },
 
-  async rotatePhoto(assetId, degrees = 90) {
+  async rotate(assetId, degrees = 90) {
     const record = assetStore.get(assetId);
     if (!record) throw new Error('Foto tidak ditemukan.');
+
     const img = record.origImg;
-    const oldW = img.naturalWidth || img.width;
-    const oldH = img.naturalHeight || img.height;
+    const rad = (degrees * Math.PI) / 180;
+    const sin = Math.abs(Math.sin(rad));
+    const cos = Math.abs(Math.cos(rad));
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    const newW = Math.round(w * cos + h * sin);
+    const newH = Math.round(w * sin + h * cos);
 
-    const rotCanvas = document.createElement('canvas');
-    if (degrees === 90 || degrees === 270) {
-      rotCanvas.width = oldH;
-      rotCanvas.height = oldW;
-    } else {
-      rotCanvas.width = oldW;
-      rotCanvas.height = oldH;
+    const canvas = document.createElement('canvas');
+    canvas.width = newW;
+    canvas.height = newH;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(newW / 2, newH / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(img, -w / 2, -h / 2);
+
+    const rotatedBlob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+    const rotatedFile = new File([rotatedBlob], record.asset.name, { type: 'image/jpeg' });
+    assetStore.delete(assetId);
+
+    // Evict cache entries for old assetId
+    for (const k of renderCache.keys()) {
+      if (k.startsWith(assetId)) renderCache.delete(k);
     }
-    const rCtx = rotCanvas.getContext('2d');
-    rCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
-    rCtx.rotate((degrees * Math.PI) / 180);
-    rCtx.drawImage(img, -oldW / 2, -oldH / 2);
 
-    const newOrigImg = new Image();
-    const newOrigUrl = rotCanvas.toDataURL('image/jpeg', 0.95);
-    await new Promise((res) => {
-      newOrigImg.onload = res;
-      newOrigImg.src = newOrigUrl;
-    });
-
-    const { imageData: viewImageData, width: viewW, height: viewH, canvas: viewCanvas } = await scaleImageToImageData(newOrigImg, PREVIEW_MAX_EDGE);
-    const viewUrl = viewCanvas.toDataURL('image/jpeg', 0.85);
-
-    const stats = measure(viewImageData.data, viewW, viewH, 4);
-    const auto = autoParams(stats);
-    const condition = describe(stats);
-
-    record.origImg = newOrigImg;
-    record.viewImageData = viewImageData;
-    record.asset.width = newOrigImg.width;
-    record.asset.height = newOrigImg.height;
-    record.asset.stats = stats;
-    record.asset.auto = auto;
-    record.asset.beforeUrl = viewUrl;
-    record.asset.thumbUrl = viewCanvas.toDataURL('image/jpeg', 0.65);
-    record.condition = condition;
-
-    return { asset: record.asset, condition };
+    return this.uploadPhoto(rotatedFile, record.asset.gear);
   },
 
   removeAsset(assetId) {
     const record = assetStore.get(assetId);
-    if (record) {
-      try {
-        if (record.asset?.viewUrl?.startsWith('blob:')) {
-          URL.revokeObjectURL(record.asset.viewUrl);
-        }
-        if (record.asset?.origUrl?.startsWith('blob:')) {
-          URL.revokeObjectURL(record.asset.origUrl);
-        }
-      } catch {}
-      assetStore.delete(assetId);
+    if (record?.origUrl) {
+      try { URL.revokeObjectURL(record.origUrl); } catch {}
     }
-  },
-
-  getHealth() {
-    return {
-      ok: true,
-      demoMode: true,
-      ai: false,
-      isOffline: true,
-      presets: [
-        { id: 'freedive', label: 'Freedive Time', tagline: 'Biru kobalt, skintone & detail 3D', base: PRESETS.freedive.base },
-        { id: 'kreatif', label: 'Segar', tagline: 'Air bening, warna wajar', base: PRESETS.kreatif.base },
-        { id: 'alami', label: 'Bening', tagline: 'Air apa adanya', base: PRESETS.alami.base },
-        { id: 'super', label: 'Menyala', tagline: 'Lebih tegas, tetap wajar', base: PRESETS.super.base },
-        { id: 'strobe', label: 'Sorot', tagline: 'Pusat frame paling terang', base: PRESETS.strobe.base },
-        { id: 'lomba', label: 'Lomba', tagline: 'Standar juri', base: PRESETS.lomba.base },
-      ],
-      gears: [
-        { id: 'umum', label: 'Umum', tagline: 'Tidak diubah', note: 'Bawaan kamera apa pun.' },
-        { id: 'osmo', label: 'DJI Osmo', tagline: 'D-Log M datar', note: 'DJI Osmo Action.' },
-        { id: 'gopro', label: 'GoPro', tagline: 'Protune datar', note: 'GoPro Hero.' },
-        { id: 'mirrorless', label: 'Mirrorless', tagline: 'Warna sudah matang', note: 'Kamera mirrorless.' },
-      ],
-      limits: { maxUploadMb: 50, guest: 999999, daily: 9999 },
-    };
-  },
+    assetStore.delete(assetId);
+    for (const k of renderCache.keys()) {
+      if (k.startsWith(assetId)) renderCache.delete(k);
+    }
+  }
 };

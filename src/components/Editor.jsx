@@ -177,6 +177,7 @@ export default function Editor() {
   const inputRef = useRef(null);
   const seq = useRef(0);
   const dragDepth = useRef(0);
+  const prevPresetRef = useRef(null);
 
   const active = assets.find((a) => a.id === activeId) || null;
   const val = (key) => params?.[key] ?? GRADE_DEFAULTS[key] ?? 0;
@@ -281,9 +282,13 @@ export default function Editor() {
     setHistoryIndex(0);
   }, [activeId]);
 
-  /* render: debounced, cancel-safe. Completely silent during slider moves — zero busy spinners. */
+  /* render: debounced for sliders, 0ms instant for Look presets, cancel-safe. Completely silent — zero busy spinners. */
   useEffect(() => {
     if (!activeId || !params) return undefined;
+    const isPresetChange = prevPresetRef.current !== params.preset;
+    prevPresetRef.current = params.preset;
+    const delay = isPresetChange ? 0 : 75;
+
     const ticket = ++seq.current;
     setRendering(true);
     const timer = setTimeout(async () => {
@@ -298,7 +303,7 @@ export default function Editor() {
       } finally {
         if (ticket === seq.current) setRendering(false);
       }
-    }, 110);
+    }, delay);
     return () => clearTimeout(timer);
   }, [activeId, params]);
 
