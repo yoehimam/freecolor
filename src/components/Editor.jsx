@@ -184,7 +184,7 @@ export default function Editor() {
   /* notices */
   useEffect(() => {
     if (!notice) return undefined;
-    const t = setTimeout(() => setNotice(''), 3000);
+    const t = setTimeout(() => setNotice(''), 1600);
     return () => clearTimeout(t);
   }, [notice]);
 
@@ -391,7 +391,6 @@ export default function Editor() {
     for (const k of RESTORATION_KEYS) if (next[k] !== undefined) scaled[k] = Math.round(next[k] * f);
     setParams(scaled);
     commitParams(scaled);
-    setNotice(`Look "${LOOKS.find((l) => l.id === id)?.name || id}" diterapkan.`);
   }
 
   function resetAll() {
