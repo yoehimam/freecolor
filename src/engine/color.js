@@ -36,7 +36,7 @@ const HIST_BINS = 1024;
 /** Approximate percentile of a float plane in [0,1]. */
 export function percentile(plane, n, p) {
   const hist = new Uint32Array(HIST_BINS);
-  const step = n > 1_500_000 ? 3 : 1;
+  const step = n > 1_500_000 ? 4 : n > 250_000 ? 3 : 1;
   let count = 0;
   for (let i = 0; i < n; i += step) {
     let v = plane[i];
@@ -55,34 +55,54 @@ export function percentile(plane, n, p) {
   return 1;
 }
 
+let _blurTmp = new Float32Array(0);
+let _blurColSum = new Float32Array(0);
+
 /**
- * Separable box blur with clamped edges. Small radii are used for
- * transmission-map smoothing and unsharp masking.
+ * Separable box blur with clamped edges.
+ * Uses 100% row-major traversal for both horizontal and vertical passes
+ * to eliminate CPU cache misses and reuses internal scratch buffers to prevent GC pauses.
  */
 export function boxBlur(src, w, h, radius) {
   if (radius < 1) return Float32Array.from(src);
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  const win = radius * 2 + 1;
+  const n = w * h;
+  if (_blurTmp.length < n) _blurTmp = new Float32Array(n);
+  if (_blurColSum.length < w) _blurColSum = new Float32Array(w);
+  const tmp = _blurTmp;
+  const colSum = _blurColSum;
+  const out = new Float32Array(n);
+  const invWin = 1 / (radius * 2 + 1);
 
   for (let y = 0; y < h; y++) {
     const row = y * w;
-    let sum = 0;
-    for (let k = -radius; k <= radius; k++) sum += src[row + clamp(k, 0, w - 1)];
+    let sum = src[row] * (radius + 1);
+    for (let k = 1; k <= radius; k++) {
+      sum += src[row + (k < w ? k : w - 1)];
+    }
     for (let x = 0; x < w; x++) {
-      tmp[row + x] = sum / win;
-      sum -= src[row + clamp(x - radius, 0, w - 1)];
-      sum += src[row + clamp(x + radius + 1, 0, w - 1)];
+      tmp[row + x] = sum * invWin;
+      const l = x - radius;
+      const r = x + radius + 1;
+      sum += src[row + (r < w ? r : w - 1)] - src[row + (l > 0 ? l : 0)];
     }
   }
 
   for (let x = 0; x < w; x++) {
-    let sum = 0;
-    for (let k = -radius; k <= radius; k++) sum += tmp[clamp(k, 0, h - 1) * w + x];
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = sum / win;
-      sum -= tmp[clamp(y - radius, 0, h - 1) * w + x];
-      sum += tmp[clamp(y + radius + 1, 0, h - 1) * w + x];
+    colSum[x] = tmp[x] * (radius + 1);
+  }
+  for (let k = 1; k <= radius; k++) {
+    const rOff = (k < h ? k : h - 1) * w;
+    for (let x = 0; x < w; x++) {
+      colSum[x] += tmp[rOff + x];
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    const topOff = (y - radius > 0 ? y - radius : 0) * w;
+    const botOff = (y + radius + 1 < h ? y + radius + 1 : h - 1) * w;
+    for (let x = 0; x < w; x++) {
+      out[row + x] = colSum[x] * invWin;
+      colSum[x] += tmp[botOff + x] - tmp[topOff + x];
     }
   }
   return out;

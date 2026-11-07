@@ -40,8 +40,307 @@ export const FREEDIVE_SURFACE = [0.19, 0.80, 1.0];
 export const TONE_REF_HUMAN = [1.06, 0.96, 0.80];
 // 2. Marine Fauna (Hewan Laut / Penyu): cool-balanced olive-tan & cream carapace/flippers
 export const TONE_REF_FAUNA = [1.04, 0.99, 0.86];
-// 3. Coral Reef & Seabed: balanced warm reef tones without staining sandy seabed
+// Coral & Reef Mask: balanced warm reef tones without staining sandy seabed
 export const TONE_REF_CORAL = [1.08, 0.96, 0.82];
+
+// Precomputed LUT for Math.pow(x, 0.45) in Stage 8c
+const POW_045_LUT = new Float32Array(1025);
+for (let i = 0; i <= 1024; i++) {
+  POW_045_LUT[i] = Math.pow(Math.max(i / 1024, 0.03), 0.45);
+}
+
+// Single-slot automatic source-image analysis cache so repeated renders of the
+// same photo (e.g. clicking Looks or dragging sliders) skip Stage 1a + 1b stats + macroWarmth.
+let _lastSourceCache = null;
+
+function computeFingerprint(data, w, h) {
+  const len = data.length;
+  const step = Math.max(4, Math.floor(len / 512) & ~3);
+  let h1 = (w * 73856093) ^ (h * 19349663) ^ len;
+  let h2 = 2166136261;
+  for (let i = 0; i < len; i += step) {
+    const v = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    h1 = Math.imul(h1 ^ v, 16777619);
+    h2 = Math.imul(h2 ^ (v + i), 1099511627);
+  }
+  return `${w}x${h}:${len}:${h1}:${h2}`;
+}
+
+export function prepareSourceCache({ data, width, height, channels = 4 }) {
+  const w = width | 0;
+  const h = height | 0;
+  const n = w * h;
+  const stride = channels || 4;
+  const fingerprint = computeFingerprint(data, w, h);
+
+  const R0 = new Float32Array(n);
+  const G0 = new Float32Array(n);
+  const B0 = new Float32Array(n);
+  const srcL = new Float32Array(n);
+  const srcPlain = new Uint8Array(n);
+  const srcWater = new Float32Array(n);
+  const sR0 = new Float32Array(n);
+  const sG0 = new Float32Array(n);
+  const sB0 = new Float32Array(n);
+
+  for (let i = 0, s = 0; i < n; i++, s += stride) {
+    const r0 = data[s] / 255;
+    const g0 = data[s + 1] / 255;
+    const b0 = data[s + 2] / 255;
+    sR0[i] = r0;
+    sG0[i] = g0;
+    sB0[i] = b0;
+    R0[i] = toLin(r0);
+    G0[i] = toLin(g0);
+    B0[i] = toLin(b0);
+
+    const l0 = luma(r0, g0, b0);
+    srcL[i] = l0;
+    const mx = r0 > g0 ? (r0 > b0 ? r0 : b0) : g0 > b0 ? g0 : b0;
+    const mn = r0 < g0 ? (r0 < b0 ? r0 : b0) : g0 < b0 ? g0 : b0;
+    const plain = mx > 0.02 && (mx - mn) / mx <= 0.22 && r0 - b0 <= 0.05;
+    srcPlain[i] = plain ? 1 : 0;
+
+    const sea0 = 0.48 * g0 + 0.52 * b0;
+    srcWater[i] = clamp01((sea0 - r0 * 1.08) / Math.max(sea0, 0.04));
+  }
+
+  const subjectMask = new Float32Array(n);
+  const texEnv = new Float32Array(n);
+  const waterSmooth = new Float32Array(n).fill(1);
+  const texFine = new Float32Array(n);
+  let waterRG = 0.2;
+  let waterGB = 0.72;
+  let isGreenWater = false;
+  let isTealWater = false;
+  let baseWR = 0.09;
+  let baseWG = 0.36;
+  let baseWB = 0.50;
+
+  if (n > 256) {
+    const blurL2 = boxBlur(srcL, w, h, 2);
+    const absDev = new Float32Array(n);
+    for (let i = 0; i < n; i++) absDev[i] = Math.abs(srcL[i] - blurL2[i]);
+    const texTight = boxBlur(absDev, w, h, 3);
+    texEnv.set(texTight);
+    for (let i = 0; i < n; i++) {
+      texFine[i] = clamp01((texTight[i] - 0.0055) / 0.018);
+      waterSmooth[i] = 1 - texFine[i];
+    }
+
+    let wSumR = 0;
+    let wSumG = 0;
+    let wSumB = 0;
+    let wWeight = 0;
+    const step = n > 500_000 ? 2 : 1;
+    const yStartW = Math.floor(h * 0.12);
+    const yEndW = Math.ceil(h * 0.85);
+
+    for (let y = yStartW; y < yEndW; y += step) {
+      const row = y * w;
+      for (let x = 0; x < w; x += step) {
+        const i = row + x;
+        const l0 = srcL[i];
+        const sw = srcWater[i];
+        const r0 = sR0[i];
+        const g0 = sG0[i];
+        const b0 = sB0[i];
+        const minGB = Math.min(g0, b0);
+        if (l0 > 0.10 && l0 < 0.72 && sw > 0.22 && r0 < minGB * 0.45 && texTight[i] < 0.005) {
+          const bluePref = b0 >= g0 * 1.15 ? 3.0 : 1.0;
+          const wt = sw * sw * bluePref;
+          wSumR += r0 * wt;
+          wSumG += g0 * wt;
+          wSumB += b0 * wt;
+          wWeight += wt;
+        }
+      }
+    }
+
+    baseWR = wWeight > 0.5 ? wSumR / wWeight : 0.09;
+    baseWG = wWeight > 0.5 ? wSumG / wWeight : 0.36;
+    baseWB = wWeight > 0.5 ? wSumB / wWeight : 0.50;
+    waterRG = clamp(baseWR / Math.max(baseWG, 0.04), 0.004, 0.36);
+    waterGB = clamp(baseWG / Math.max(baseWB, 0.04), 0.55, 1.35);
+    isGreenWater = waterGB >= 1.03 && waterRG < 0.05;
+    isTealWater = !isGreenWater && waterGB >= 0.82;
+
+    const rowWaterG = new Float32Array(h);
+    const rowWaterGB = new Float32Array(h);
+    if (isGreenWater) {
+      const sampleCols = 64;
+      const colStep = Math.max(1, Math.floor(w / sampleCols));
+      const tmpG = new Float32Array(sampleCols);
+      const tmpGB = new Float32Array(sampleCols);
+      for (let y = 0; y < h; y++) {
+        const row = y * w;
+        let cnt = 0;
+        for (let x = 0; x < w && cnt < sampleCols; x += colStep) {
+          const i = row + x;
+          tmpG[cnt] = sG0[i];
+          tmpGB[cnt] = sG0[i] / Math.max(sB0[i], 0.03);
+          cnt++;
+        }
+        tmpG.subarray(0, cnt).sort();
+        tmpGB.subarray(0, cnt).sort();
+        const p60 = Math.min(cnt - 1, Math.floor(cnt * 0.60));
+        const p45 = Math.min(cnt - 1, Math.floor(cnt * 0.45));
+        rowWaterG[y] = tmpG[p60];
+        rowWaterGB[y] = tmpGB[p45];
+      }
+    }
+
+    for (let y = 0; y < h; y++) {
+      const yNorm = y / Math.max(1, h - 1);
+      const row = y * w;
+      const rwG = isGreenWater ? rowWaterG[y] : baseWG;
+      const rwGB = isGreenWater ? rowWaterGB[y] : waterGB;
+      for (let x = 0; x < w; x++) {
+        const i = row + x;
+        const l0 = srcL[i];
+        if (l0 < 0.05 || l0 > 0.90) continue;
+        const r0 = sR0[i];
+        const g0 = sG0[i];
+        const b0 = sB0[i];
+
+        const rg = r0 / Math.max(g0, 0.03);
+        const gb = g0 / Math.max(b0, 0.03);
+        const tf = texFine[i];
+
+        const topGbCeil = Math.max(0.79, waterGB + 0.04);
+        const isTopWater = clamp01((0.36 - yNorm) / 0.14) * clamp01((topGbCeil - gb) / 0.06) * clamp01(1 - tf * 2.5);
+        const flareWaterDamp = 1 - isTopWater;
+
+        const suitGuard = isGreenWater
+          ? clamp01((l0 - 0.145) / 0.035)
+          : l0 < 0.20 && gb < 0.775
+            ? 0.0
+            : 1.0;
+
+        const sandGuard = 1.0;
+        const rgThresh = isGreenWater ? 0.045 : 0.055;
+        const rgExcess = Math.max(0, rg - waterRG - rgThresh) * flareWaterDamp * suitGuard * sandGuard;
+
+        let gbExcess = 0;
+        let greenSubScore = 0;
+        if (!isGreenWater) {
+          const fishShoalDamp = isTealWater && yNorm < 0.78 ? clamp01((rg - (waterRG + 0.10)) / 0.12) : 1.0;
+          gbExcess = Math.max(0, gb - waterGB - 0.045) * flareWaterDamp * fishShoalDamp * sandGuard;
+        } else {
+          const diverZone =
+            clamp01((0.79 - yNorm) / 0.08) *
+            clamp01((yNorm - 0.30) / 0.10) *
+            clamp01((x / Math.max(1, w - 1) - 0.22) / 0.04) *
+            clamp01((0.93 - x / Math.max(1, w - 1)) / 0.04);
+          const isShadedLimb =
+            clamp01((rwG - 0.015 - g0) / 0.042) *
+            clamp01((g0 - 0.145) / 0.045) *
+            clamp01((gb - rwGB + 0.08) / 0.10) *
+            diverZone;
+          const isLitSkin =
+            clamp01((g0 - rwG - 0.014) / 0.055) *
+            clamp01((r0 - baseWR - 0.012) / 0.045) *
+            clamp01((0.92 - l0) / 0.12) *
+            diverZone;
+          const isLowerAnkleLit =
+            x > w * 0.76 && y > h * 0.64 && y < h * 0.74
+              ? clamp01((g0 - rwG - 0.012) / 0.042) * clamp01((gb - 1.01) / 0.08) * diverZone
+              : 0;
+          greenSubScore = Math.max(isShadedLimb * 0.94, isLitSkin * 0.96, isLowerAnkleLit * 0.90) * suitGuard;
+        }
+
+        const notDeepBlue = isGreenWater
+          ? clamp01(greenSubScore * 1.4)
+          : isTealWater && yNorm < 0.78
+            ? clamp01((gb - waterGB - 0.02) / 0.10) * clamp01((rg - waterRG - 0.08) / 0.12) * flareWaterDamp
+            : clamp01((gb - waterGB + 0.04) / 0.12) * flareWaterDamp;
+        const texScore = tf * notDeepBlue * clamp01((0.85 - l0) / 0.15) * 0.75 * suitGuard;
+
+        const lumaWindow = clamp01((l0 - 0.05) / 0.06) * clamp01((0.88 - l0) / 0.12);
+        const rawScore = clamp01(rgExcess * 3.6 + gbExcess * 4.2 + greenSubScore + texScore * sandGuard) * lumaWindow;
+        subjectMask[i] = clamp01(rawScore);
+      }
+    }
+
+    if (isGreenWater) {
+      const supportR = Math.max(8, Math.min(20, Math.round(Math.min(w, h) / 90)));
+      const blurTotal = boxBlur(subjectMask, w, h, supportR);
+      for (let i = 0; i < n; i++) {
+        const sm = subjectMask[i];
+        const bt = blurTotal[i];
+        if (bt > 0.12 && srcL[i] > 0.14) {
+          const fill = bt * 1.35;
+          if (fill > sm) subjectMask[i] = Math.min(0.95, fill);
+        } else if (bt < 0.08) {
+          subjectMask[i] *= clamp01(bt / 0.08);
+        }
+      }
+      const smFeather = boxBlur(subjectMask, w, h, 4);
+      for (let i = 0; i < n; i++) {
+        const suitHold = srcL[i] < 0.135 ? clamp01((srcL[i] - 0.10) / 0.035) : 1.0;
+        subjectMask[i] = clamp01((subjectMask[i] * 0.45 + smFeather[i] * 0.55) * suitHold);
+      }
+    }
+  }
+
+  const macroWarmth = n > 1024 ? boxBlur(subjectMask, w, h, 10) : new Float32Array(n);
+
+  // Precompute Step 1b midtone linear sums
+  let wbS_R = 0;
+  let wbS_G = 0;
+  let wbS_B = 0;
+  let wbS_C = 0;
+  if (n > 64) {
+    const sampleStep = n > 500_000 ? 2 : 1;
+    for (let y = 0; y < h; y += sampleStep) {
+      const row = y * w;
+      for (let x = 0; x < w; x += sampleStep) {
+        const i = row + x;
+        const l = 0.2126 * R0[i] + 0.7152 * G0[i] + 0.0722 * B0[i];
+        if (l > 0.008 && l < 0.76) {
+          wbS_R += R0[i];
+          wbS_G += G0[i];
+          wbS_B += B0[i];
+          wbS_C++;
+        }
+      }
+    }
+  }
+
+  const cache = {
+    fingerprint,
+    w,
+    h,
+    n,
+    R0,
+    G0,
+    B0,
+    sR0,
+    sG0,
+    sB0,
+    srcL,
+    srcPlain,
+    srcWater,
+    subjectMask,
+    texEnv,
+    waterSmooth,
+    texFine,
+    macroWarmth,
+    waterRG,
+    waterGB,
+    isGreenWater,
+    isTealWater,
+    baseWR,
+    baseWG,
+    baseWB,
+    wbS_R,
+    wbS_G,
+    wbS_B,
+    wbS_C,
+  };
+  _lastSourceCache = cache;
+  return cache;
+}
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -167,454 +466,93 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
   const n = w * h;
   const stride = channels || 4;
 
-  const R = new Float32Array(n);
-  const G = new Float32Array(n);
-  const B = new Float32Array(n);
-
-  const srcL = new Float32Array(n);
-  const srcPlain = new Uint8Array(n);
-  const srcWater = new Float32Array(n);
-  const sR0 = new Float32Array(n);
-  const sG0 = new Float32Array(n);
-  const sB0 = new Float32Array(n);
-
-  for (let i = 0, s = 0; i < n; i++, s += stride) {
-    const r0 = data[s] / 255;
-    const g0 = data[s + 1] / 255;
-    const b0 = data[s + 2] / 255;
-    sR0[i] = r0;
-    sG0[i] = g0;
-    sB0[i] = b0;
-    R[i] = toLin(r0);
-    G[i] = toLin(g0);
-    B[i] = toLin(b0);
-
-    const l0 = luma(r0, g0, b0);
-    srcL[i] = l0;
-    const mx = r0 > g0 ? (r0 > b0 ? r0 : b0) : g0 > b0 ? g0 : b0;
-    const mn = r0 < g0 ? (r0 < b0 ? r0 : b0) : g0 < b0 ? g0 : b0;
-    const plain = mx > 0.02 && (mx - mn) / mx <= 0.22 && r0 - b0 <= 0.05;
-    srcPlain[i] = plain ? 1 : 0;
-
-    const sea0 = 0.48 * g0 + 0.52 * b0;
-    srcWater[i] = clamp01((sea0 - r0 * 1.08) / Math.max(sea0, 0.04));
-  }
-
-  // --------------------------------- 1a. Per-Pixel Intrinsic Subject vs. Open-Water Separation
-  // Measures the photo's open-water baseline ratios (waterRG, waterGB) and computes
-  // each pixel's intrinsic subjectness strictly from its own (r0, g0, b0) ratios + fine edge detail.
-  // Zero broad spatial blur and zero hard y-coordinate steps are used, guaranteeing 0.0px halo
-  // around turtles, divers, or fins and zero horizontal bands across open water.
-  const subjectMask = new Float32Array(n);
-  const texEnv = new Float32Array(n);
-  // 1 = smooth open water, 0 = textured reef/sand/subject.
-  const waterSmooth = new Float32Array(n).fill(1);
-  // Per-pixel fine structure (radius 2-3px only, never bleeding across edges into open water).
-  const texFine = new Float32Array(n);
-  // R/G and G/B ratios of the open-water column, measured from the photo itself.
-  let waterRG = 0.2;
-  let waterGB = 0.72;
-  let isGreenWater = false;
-  let isTealWater = false;
-  if (!skipRestoration && n > 256) {
-    const blurL2 = boxBlur(srcL, w, h, 2);
-    const absDev = new Float32Array(n);
-    for (let i = 0; i < n; i++) absDev[i] = Math.abs(srcL[i] - blurL2[i]);
-    // Tight 3px envelope so JPEG blocks in open water stay near 0 and never create a halo around fins!
-    const texTight = boxBlur(absDev, w, h, 3);
-    texEnv.set(texTight);
-    for (let i = 0; i < n; i++) {
-      texFine[i] = clamp01((texTight[i] - 0.0055) / 0.018);
-      waterSmooth[i] = 1 - texFine[i];
-    }
-
-    let wSumR = 0;
-    let wSumG = 0;
-    let wSumB = 0;
-    let wWeight = 0;
-    const step = n > 500_000 ? 2 : 1;
-    const yStartW = Math.floor(h * 0.12);
-    const yEndW = Math.ceil(h * 0.85);
-
-    for (let y = yStartW; y < yEndW; y += step) {
-      const row = y * w;
-      for (let x = 0; x < w; x += step) {
-        const i = row + x;
-        const l0 = srcL[i];
-        const sw = srcWater[i];
-        const r0 = sR0[i];
-        const g0 = sG0[i];
-        const b0 = sB0[i];
-        const minGB = Math.min(g0, b0);
-        if (l0 > 0.10 && l0 < 0.72 && sw > 0.22 && r0 < minGB * 0.45 && texTight[i] < 0.005) {
-          const bluePref = b0 >= g0 * 1.15 ? 3.0 : 1.0;
-          const wt = sw * sw * bluePref;
-          wSumR += r0 * wt;
-          wSumG += g0 * wt;
-          wSumB += b0 * wt;
-          wWeight += wt;
-        }
-      }
-    }
-
-    const baseWR = wWeight > 0.5 ? wSumR / wWeight : 0.09;
-    const baseWG = wWeight > 0.5 ? wSumG / wWeight : 0.36;
-    const baseWB = wWeight > 0.5 ? wSumB / wWeight : 0.50;
-    waterRG = clamp(baseWR / Math.max(baseWG, 0.04), 0.004, 0.36);
-    waterGB = clamp(baseWG / Math.max(baseWB, 0.04), 0.55, 1.35);
-    // True zero-red green water has G strictly exceeding B (waterGB >= 1.03) and almost zero red (waterRG < 0.05).
-    // Cyan-teal ocean water (0.82 <= waterGB < 1.03, like tropical freedive photos) is handled cleanly without 1D block bridging.
-    isGreenWater = waterGB >= 1.03 && waterRG < 0.05;
-    isTealWater = !isGreenWater && waterGB >= 0.82;
-
-    // Row-wise 60th-percentile open-water G and G/B baseline for green-water scenes:
-    // In green water (where R ≈ 0 everywhere), open water has a smooth vertical G/B gradient,
-    // while a human diver's skin/limbs and seabed have localized G/B excess or foreground contrast.
-    const rowWaterG = new Float32Array(h);
-    const rowWaterGB = new Float32Array(h);
-    if (isGreenWater) {
-      const sampleCols = 64;
-      const colStep = Math.max(1, Math.floor(w / sampleCols));
-      const tmpG = new Float32Array(sampleCols);
-      const tmpGB = new Float32Array(sampleCols);
-      for (let y = 0; y < h; y++) {
-        const row = y * w;
-        let cnt = 0;
-        for (let x = 0; x < w && cnt < sampleCols; x += colStep) {
-          const i = row + x;
-          tmpG[cnt] = sG0[i];
-          tmpGB[cnt] = sG0[i] / Math.max(sB0[i], 0.03);
-          cnt++;
-        }
-        tmpG.subarray(0, cnt).sort();
-        tmpGB.subarray(0, cnt).sort();
-        const p60 = Math.min(cnt - 1, Math.floor(cnt * 0.60));
-        const p45 = Math.min(cnt - 1, Math.floor(cnt * 0.45));
-        rowWaterG[y] = tmpG[p60];
-        rowWaterGB[y] = tmpGB[p45];
-      }
-    }
-
-    for (let y = 0; y < h; y++) {
-      const yNorm = y / Math.max(1, h - 1);
-      const row = y * w;
-      const rwG = isGreenWater ? rowWaterG[y] : baseWG;
-      const rwGB = isGreenWater ? rowWaterGB[y] : waterGB;
-      for (let x = 0; x < w; x++) {
-        const i = row + x;
-        const l0 = srcL[i];
-        if (l0 < 0.05 || l0 > 0.90) continue;
-        const r0 = sR0[i];
-        const g0 = sG0[i];
-        const b0 = sB0[i];
-
-        const rg = r0 / Math.max(g0, 0.03);
-        const gb = g0 / Math.max(b0, 0.03);
-        const tf = texFine[i];
-
-        // 1. Surface sun-ripple & surface-sky guard: surface water near the top of the frame (yNorm < 0.36)
-        //    is smooth (tf < 0.15) and has G/B <= waterGB + 0.04.
-        //    Textured subjects (like a turtle flipper reaching up) have tf > 0.20 and are NOT damped!
-        const topGbCeil = Math.max(0.79, waterGB + 0.04);
-        const isTopWater = clamp01((0.36 - yNorm) / 0.14) * clamp01((topGbCeil - gb) / 0.06) * clamp01(1 - tf * 2.5);
-        const flareWaterDamp = 1 - isTopWater;
-
-        // 2. Black wetsuit / swimsuit / dark hair guard:
-        //    In blue water: l0 < 0.20 && gb < 0.775
-        //    In green water: dark swimsuit/hair has l0 < 0.165 (g0 < 0.20)
-        const suitGuard = isGreenWater
-          ? clamp01((l0 - 0.145) / 0.035)
-          : l0 < 0.20 && gb < 0.775
-            ? 0.0
-            : 1.0;
-
-        // 3. Per-pixel intrinsic warmth (skin/turtle/coral) & G/B excess above open water
-        // Note: Do NOT suppress subject mask based on low R in deep water, because deep sea
-        // fauna (like turtles) have naturally absorbed red in raw capture!
-        const sandGuard = 1.0;
-        const rgThresh = isGreenWater ? 0.045 : 0.055;
-        const rgExcess = Math.max(0, rg - waterRG - rgThresh) * flareWaterDamp * suitGuard * sandGuard;
-
-        let gbExcess = 0;
-        let greenSubScore = 0;
-        if (!isGreenWater) {
-          // In teal water with shoals of silver fish, distant fish have high fine edge texture (tf > 0.22) and low R/G (< 0.45);
-          // damp gbExcess on non-warm mid-water fish shoals so they stay cool silver-blue instead of turning brown!
-          const fishShoalDamp = isTealWater && yNorm < 0.78 ? clamp01((rg - (waterRG + 0.10)) / 0.12) : 1.0;
-          gbExcess = Math.max(0, gb - waterGB - 0.045) * flareWaterDamp * fishShoalDamp * sandGuard;
-        } else {
-          // In green water (where R is absorbed to ~0), a human diver's shaded skin (face, arms, hips, legs, feet)
-          // is noticeably darker than the open-water column at the same depth (g0 < rwG - 0.018),
-          // while sunlit skin highlights (forehead, shoulders, thighs, calves, ankles) are brighter than open water!
-          // Gate to the diver column (yNorm < 0.78) so bottom seabed shadow ripples don't get falsely colored as human skin.
-          const diverZone =
-            clamp01((0.79 - yNorm) / 0.08) *
-            clamp01((yNorm - 0.30) / 0.10) *
-            clamp01((x / Math.max(1, w - 1) - 0.22) / 0.04) *
-            clamp01((0.93 - x / Math.max(1, w - 1)) / 0.04);
-          const isShadedLimb =
-            clamp01((rwG - 0.015 - g0) / 0.042) *
-            clamp01((g0 - 0.145) / 0.045) *
-            clamp01((gb - rwGB + 0.08) / 0.10) *
-            diverZone;
-          const isLitSkin =
-            clamp01((g0 - rwG - 0.014) / 0.055) *
-            clamp01((r0 - baseWR - 0.012) / 0.045) *
-            clamp01((0.92 - l0) / 0.12) *
-            diverZone;
-          const isLowerAnkleLit =
-            x > w * 0.76 && y > h * 0.64 && y < h * 0.74
-              ? clamp01((g0 - rwG - 0.012) / 0.042) * clamp01((gb - 1.01) / 0.08) * diverZone
-              : 0;
-          greenSubScore = Math.max(isShadedLimb * 0.94, isLitSkin * 0.96, isLowerAnkleLit * 0.90) * suitGuard;
-        }
-
-        // 4. Fine-structure subject score: only genuinely textured edges/scales/coral (tf > 0)
-        //    contribute structural subjectness, and never on surface ripples, open green water, or cool mid-water fish shoals.
-        const notDeepBlue = isGreenWater
-          ? clamp01(greenSubScore * 1.4)
-          : isTealWater && yNorm < 0.78
-            ? clamp01((gb - waterGB - 0.02) / 0.10) * clamp01((rg - waterRG - 0.08) / 0.12) * flareWaterDamp
-            : clamp01((gb - waterGB + 0.04) / 0.12) * flareWaterDamp;
-        const texScore = tf * notDeepBlue * clamp01((0.85 - l0) / 0.15) * 0.75 * suitGuard;
-
-        const lumaWindow = clamp01((l0 - 0.05) / 0.06) * clamp01((0.88 - l0) / 0.12);
-        const rawScore = clamp01(rgExcess * 3.6 + gbExcess * 4.2 + greenSubScore + texScore * sandGuard) * lumaWindow;
-        subjectMask[i] = clamp01(rawScore);
-      }
-    }
-    // Fast 2D Morphological Interior Bridging & Gap Filling in green water
-    if (isGreenWater) {
-      const supportR = Math.max(8, Math.min(20, Math.round(Math.min(w, h) / 90)));
-      const blurTotal = boxBlur(subjectMask, w, h, supportR);
-      // Suppress isolated background noise and fill contiguous subject gaps with smooth 2D support
-      for (let i = 0; i < n; i++) {
-        const sm = subjectMask[i];
-        const bt = blurTotal[i];
-        if (bt > 0.12 && srcL[i] > 0.14) {
-          const fill = bt * 1.35;
-          if (fill > sm) subjectMask[i] = Math.min(0.95, fill);
-        } else if (bt < 0.08) {
-          subjectMask[i] *= clamp01(bt / 0.08);
-        }
-      }
-      const smFeather = boxBlur(subjectMask, w, h, 4);
-      for (let i = 0; i < n; i++) {
-        const suitHold = srcL[i] < 0.135 ? clamp01((srcL[i] - 0.10) / 0.035) : 1.0;
-        subjectMask[i] = clamp01((subjectMask[i] * 0.45 + smFeather[i] * 0.55) * suitHold);
-      }
+  // Reuse precomputed source-image analysis cache when rendering different Looks or slider parameters
+  let cache = options.sourceCache || null;
+  if (!cache) {
+    const fp = computeFingerprint(data, w, h);
+    if (_lastSourceCache && _lastSourceCache.fingerprint === fp) {
+      cache = _lastSourceCache;
+    } else {
+      cache = prepareSourceCache({ data, width: w, height: h, channels: stride });
     }
   }
+
+  const R = new Float32Array(cache.R0);
+  const G = new Float32Array(cache.G0);
+  const B = new Float32Array(cache.B0);
+
+  const srcL = cache.srcL;
+  const srcPlain = cache.srcPlain;
+  const srcWater = cache.srcWater;
+  const sR0 = cache.sR0;
+  const sG0 = cache.sG0;
+  const sB0 = cache.sB0;
+
+  const subjectMask = skipRestoration ? new Float32Array(n) : cache.subjectMask;
+  const texEnv = skipRestoration ? new Float32Array(n) : cache.texEnv;
+  const waterSmooth = skipRestoration ? new Float32Array(n).fill(1) : cache.waterSmooth;
+  const texFine = skipRestoration ? new Float32Array(n) : cache.texFine;
+  const waterRG = skipRestoration ? 0.2 : cache.waterRG;
+  const waterGB = skipRestoration ? 0.72 : cache.waterGB;
+  const isGreenWater = skipRestoration ? false : cache.isGreenWater;
+  const isTealWater = skipRestoration ? false : cache.isTealWater;
 
   // --------------------------------- 1b. Ancuti Red-Channel Compensation & WB
   const wbStrength = skipRestoration ? 0 : p.redRestore / 100;
   let gainR = 1;
 
-  if (wbStrength > 0.02 && n > 64) {
-    let allR = 0;
-    let allG = 0;
-    let allB = 0;
-    let allC = 0;
-    const sampleStep = n > 500_000 ? 2 : 1;
-    // Sample below top 20% surface window so bright sun-flares don't skew underwater red deficit
-    const yStartSample = Math.floor(h * 0.20);
-    for (let y = yStartSample; y < h; y += sampleStep) {
-      const row = y * w;
-      for (let x = 0; x < w; x += sampleStep) {
-        const i = row + x;
-        const l = 0.2126 * R[i] + 0.7152 * G[i] + 0.0722 * B[i];
-        if (l > 0.008 && l < 0.72) {
-          allR += R[i];
-          allG += G[i];
-          allB += B[i];
-          allC++;
-        }
-      }
+  if (wbStrength > 0.02 && n > 64 && cache.wbS_C > 16) {
+    const mR = cache.wbS_R / cache.wbS_C;
+    const mG = cache.wbS_G / cache.wbS_C;
+    const mB = cache.wbS_B / cache.wbS_C;
+    const target = (mR + mG + mB) / 3;
+
+    const isFreediveWb = p.preset === 'freedive';
+    const wR = isFreediveWb ? 0.97 : 0.99;
+    const wG = isFreediveWb ? 1.0 : 1.01;
+    const wB = isFreediveWb ? 1.05 : 1.02;
+    const targetR = target * wR;
+    const targetG = target * wG;
+    const targetB = target * wB;
+
+    const gr = clamp(targetR / Math.max(mR, 1e-3), 0.9, 2.85);
+    const gg = clamp(targetG / Math.max(mG, 1e-3), 0.78, 1.15);
+    const gb = clamp(targetB / Math.max(mB, 1e-3), 0.84, 1.16);
+    let gainSum = 0;
+
+    for (let i = 0; i < n; i++) {
+      const rVal = R[i];
+      const gVal = G[i];
+      const bVal = B[i];
+      const l = 0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal;
+
+      const shadowGuard = clamp(l / 0.025, 0.25, 1);
+      const redRatio = rVal / Math.max(gVal, 1e-3);
+      const alreadyBalanced = clamp01((redRatio - 0.50) / 0.34);
+      const isWater = srcWater[i] > 0.16;
+      const openWaterWbDamp = isWater
+        ? clamp01(0.14 + subjectMask[i] * 1.15)
+        : sB0[i] > sG0[i] * 1.12
+          ? clamp01(0.18 + subjectMask[i] * 1.05)
+          : 1.0;
+      const highGuard = clamp((0.82 - srcL[i]) / 0.30, 0.12, 1) * (1 - alreadyBalanced * 0.86) * openWaterWbDamp;
+      const effWb = wbStrength * shadowGuard;
+
+      const fr = 1 + (gr - 1) * effWb * highGuard;
+      const hiRoll = 1 - 0.5 * clamp01((srcL[i] - 0.65) / 0.2);
+      const fg = 1 + (gg - 1) * effWb * hiRoll;
+      const fb = 1 + (gb - 1) * effWb * hiRoll;
+
+      const newG = gVal * fg;
+      const newB = bVal * fb;
+      const isOpenWater = srcWater[i] > 0.35 && waterSmooth[i] > 0.35 && subjectMask[i] < 0.25;
+      const maxLinearR = isOpenWater ? Math.min(newG * 0.75, newB * 0.70) : 1.45;
+      R[i] = Math.min(maxLinearR, rVal * fr);
+      G[i] = newG;
+      B[i] = newB;
+      gainSum += fr;
     }
-
-    if (allC > 16) {
-      const mR0 = allR / allC;
-      const mG0 = allG / allC;
-      const mB0 = allB / allC;
-
-      const redDef = Math.max(0, mG0 - mR0);
-      // Disabled linear Ancuti compAlpha: Step 5a (C2 Multi-Zone) handles true biological
-      // red restoration in perceptual sRGB without blurred macro halo bleed around marine fauna/diver.
-      const compAlpha = 0;
-
-      // Green-water neutralisation is already done by the per-channel grey-world
-      // gain below. Damping green AND lifting blue on top of it pushed every warm
-      // subject (turtle shell, coral, skin) into magenta, so both are gone.
-      const greenDamp = 1;
-      const blueLift = 1;
-
-      if (compAlpha > 0.005 || greenDamp < 0.995) {
-        // Macroscopic spatial blur eliminates isolated noise dots, micro-bubbles, and compression speckles
-        const macroSubject = boxBlur(subjectMask, w, h, Math.max(6, Math.min(14, Math.round(Math.min(w, h) / 70))));
-        for (let i = 0; i < n; i++) {
-          const r = R[i];
-          const g = G[i] * greenDamp;
-          const b = B[i] * blueLift;
-          const l0 = srcL[i];
-          const sub = subjectMask[i];
-          const mx0 = Math.max(sR0[i], sG0[i], sB0[i]);
-          // Sun-core & highlight guard: prevents orange-pink halo around blown sun flares
-          const bubbleGuard = clamp((0.68 - l0) / 0.22, 0.0, 1) * clamp((0.82 - mx0) / 0.18, 0.0, 1);
-          // Water red-absorption protection:
-          // In real open water (srcWater > 0.15), water column naturally has NO red.
-          // Adding red to open water creates purple/magenta/muddy water.
-          // Only true subjects (skin, corals, turtles, fish) should receive full red restoration!
-          // Spatially coherent macroscopic subject weighting:
-          // A broad spatial field ensures real objects (turtle, corals, diver) receive full red,
-          // while isolated micro-specks, noise, or water particles receive 0 red (preventing glowing white/pink dots).
-          const macroSub = macroSubject[i];
-          const rAdd = compAlpha * (g - r > 0 ? g - r : 0) * (1 - r * 0.82) * bubbleGuard * macroSub;
-          R[i] = Math.min(g * 0.95, r + rAdd);
-          G[i] = g;
-          B[i] = b;
-        }
-      }
-
-      // Step B: Re-measure midtones after Ancuti compensation for smooth Grey-World WB
-      const tw = Math.max(1, Math.ceil(w / WB_TILE));
-      const th = Math.max(1, Math.ceil(h / WB_TILE));
-      const sumR = new Float32Array(tw * th);
-      const sumG = new Float32Array(tw * th);
-      const sumB = new Float32Array(tw * th);
-      const sumSub = new Float32Array(tw * th);
-      const sumSmooth = new Float32Array(tw * th);
-      const cnt = new Float32Array(tw * th);
-
-      for (let y = 0; y < h; y += sampleStep) {
-        const ty = Math.min(th - 1, (y / WB_TILE) | 0);
-        const row = y * w;
-        for (let x = 0; x < w; x += sampleStep) {
-          const i = row + x;
-          const l = 0.2126 * R[i] + 0.7152 * G[i] + 0.0722 * B[i];
-          if (l > 0.008 && l < 0.76) {
-            const ti = ty * tw + Math.min(tw - 1, (x / WB_TILE) | 0);
-            sumR[ti] += R[i];
-            sumG[ti] += G[i];
-            sumB[ti] += B[i];
-            sumSub[ti] += subjectMask[i];
-            sumSmooth[ti] += waterSmooth[i];
-            cnt[ti]++;
-          }
-        }
-      }
-
-      let sR = 0;
-      let sG = 0;
-      let sB = 0;
-      let sC = 0;
-      for (let t = 0; t < cnt.length; t++) {
-        sR += sumR[t];
-        sG += sumG[t];
-        sB += sumB[t];
-        sC += cnt[t];
-      }
-
-      if (sC > 16) {
-        const mR = sR / sC;
-        const mG = sG / sC;
-        const mB = sB / sC;
-        const target = (mR + mG + mB) / 3;
-
-        // Preserve natural marine coolness in the global white balance target:
-        // R aims for 91% of neutral while G (104%) and B (105%) retain clean
-        // cyan-turquoise marine balance without pushing B >> G into purple.
-        // In Freedive Time mode, B retains slightly deeper sapphire authority (107%).
-        const isFreediveWb = p.preset === 'freedive';
-        const wR = isFreediveWb ? 0.97 : 0.99;
-        const wG = isFreediveWb ? 1.0 : 1.01;
-        const wB = isFreediveWb ? 1.05 : 1.02;
-        const targetR = target * wR;
-        const targetG = target * wG;
-        const targetB = target * wB;
-
-        const globalR = clamp(targetR / Math.max(mR, 1e-3), 0.9, 2.85);
-        const globalG = clamp(targetG / Math.max(mG, 1e-3), 0.78, 1.15);
-        const globalB = clamp(targetB / Math.max(mB, 1e-3), 0.84, 1.16);
-
-        const gRed = new Float32Array(tw * th);
-        const gGreen = new Float32Array(tw * th);
-        const gBlue = new Float32Array(tw * th);
-
-        // Per-tile gains used to show up as pastel 96 px rectangles floating in
-        // open water. Red recovery is per-pixel now, so one global gain is enough.
-        const localWeight = 0;
-        const minTileCount = Math.max(12, (WB_TILE * WB_TILE) / (sampleStep * sampleStep * 8));
-
-        for (let t = 0; t < cnt.length; t++) {
-          if (cnt[t] >= minTileCount) {
-            const r = sumR[t] / cnt[t];
-            const g = sumG[t] / cnt[t];
-            const b = sumB[t] / cnt[t];
-            const tg = (r + g + b) / 3;
-            const lr = clamp((tg * wR) / Math.max(r, 1e-3), 0.9, 3.0);
-            const lg = clamp((tg * wG) / Math.max(g, 1e-3), 0.76, 1.16);
-            const lb = clamp((tg * wB) / Math.max(b, 1e-3), 0.82, 1.18);
-            // Local white balance only where the tile really holds structure.
-            // A flat open-water tile keeps the global gain, otherwise the 96 px
-            // tiles show up as pastel patches floating in the water.
-            const tileSub = clamp01(sumSub[t] / cnt[t]);
-            const tileSmooth = clamp01(sumSmooth[t] / cnt[t]);
-            const localW = localWeight * (1 - tileSmooth) * (0.45 + 0.55 * clamp01(tileSub / 0.4));
-            gRed[t] = globalR + (lr - globalR) * localW;
-            gGreen[t] = globalG + (lg - globalG) * localW;
-            gBlue[t] = globalB + (lb - globalB) * localW;
-          } else {
-            gRed[t] = globalR;
-            gGreen[t] = globalG;
-            gBlue[t] = globalB;
-          }
-        }
-
-        const gr = globalR;
-        const gg = globalG;
-        const gb = globalB;
-        let gainSum = 0;
-
-        for (let i = 0; i < n; i++) {
-          const rVal = R[i];
-          const gVal = G[i];
-          const bVal = B[i];
-          const l = 0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal;
-
-          const shadowGuard = clamp(l / 0.025, 0.25, 1);
-          // If a pixel (such as a bright air bubble or white marking) already has R
-          // close to G, taper the tile's red boost so it never overshoots into peach/salmon.
-          const redRatio = rVal / Math.max(gVal, 1e-3);
-          const alreadyBalanced = clamp01((redRatio - 0.50) / 0.34);
-          // Protect open water from having WB red amplified into murky purple-grey!
-          const isWater = srcWater[i] > 0.16;
-          const colorDamp = isWater
-            ? clamp01(0.14 + subjectMask[i] * 1.15)
-            : sB0[i] > sG0[i] * 1.12
-              ? clamp01(0.18 + subjectMask[i] * 1.05)
-              : 1.0;
-          const openWaterWbDamp = colorDamp;
-          const highGuard = clamp((0.82 - srcL[i]) / 0.30, 0.12, 1) * (1 - alreadyBalanced * 0.86) * openWaterWbDamp;
-          const effWb = wbStrength * shadowGuard;
-
-          const fr = 1 + (gr - 1) * effWb * highGuard;
-          const fg = 1 + (gg - 1) * effWb * (1 - 0.5 * clamp01((srcL[i] - 0.65) / 0.2));
-          const fb = 1 + (gb - 1) * effWb * (1 - 0.5 * clamp01((srcL[i] - 0.65) / 0.2));
-
-          const newG = gVal * fg;
-          const newB = bVal * fb;
-          // Open water column has naturally low red; prevent water from turning purple
-          // while fully permitting subjects (corals, fish, skin, sand) to restore rich warm colors
-          const isOpenWater = srcWater[i] > 0.35 && waterSmooth[i] > 0.35 && subjectMask[i] < 0.25;
-          const maxLinearR = isOpenWater ? Math.min(newG * 0.75, newB * 0.70) : 1.45;
-          R[i] = Math.min(maxLinearR, rVal * fr);
-          G[i] = newG;
-          B[i] = newB;
-          gainSum += fr;
-        }
-        gainR = gainSum / n;
-      }
-    }
+    gainR = gainSum / n;
   }
 
   // ------------------------------------ 3. veil + 4. depth attenuation
@@ -890,7 +828,15 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
     const rgGuide = new Float32Array(n);
     for (let i = 0; i < n; i++) rgGuide[i] = R[i] / Math.max(G[i], 0.02);
     const rgSmooth = boxBlur(rgGuide, w, h, 3);
-    const macroWarmth = boxBlur(subjectMask, w, h, 10);
+    const macroWarmth = cache.macroWarmth;
+
+    const doAutoGamma = Math.abs(autoGamma - 1.0) > 0.005;
+    const autoGammaLut = new Float32Array(2049);
+    if (doAutoGamma) {
+      for (let k = 0; k <= 2048; k++) {
+        autoGammaLut[k] = Math.pow(Math.max(1e-4, k / 2048), autoGamma);
+      }
+    }
 
     for (let y = 0; y < h; y++) {
       const yNorm = y / Math.max(1, h - 1);
@@ -905,15 +851,20 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
 
         // A0. Automatic Shadow/Midtone Gamma Alignment
         // Protects deep black wetsuits (l0 < 0.08 && sub < 0.14) while opening up dark reefs or deepening overly bright green water
-        if (Math.abs(autoGamma - 1.0) > 0.005 && l0 < 0.88) {
+        if (doAutoGamma && l0 < 0.88) {
           const suitHold = l0 < 0.16 && sub > 0.15 && isGreenWater
             ? clamp01((0.18 - l0) / 0.06) * 0.55
             : l0 < 0.085 && sub < 0.15
               ? clamp01((0.085 - l0) / 0.055) * 0.72
               : 0;
-          const effGamma = autoGamma + (1 - autoGamma) * suitHold;
           const lCur = Math.max(1e-4, luma(r, g, b));
-          const lLift = Math.pow(lCur, effGamma);
+          let lLift;
+          if (suitHold === 0) {
+            lLift = autoGammaLut[Math.min(2048, (lCur * 2048 + 0.5) | 0)];
+          } else {
+            const effGamma = autoGamma + (1 - autoGamma) * suitHold;
+            lLift = Math.pow(lCur, effGamma);
+          }
           const gain = clamp(lLift / lCur, 0.55, 2.4);
           r = clamp01(r * gain);
           g = clamp01(g * gain);
@@ -1485,7 +1436,7 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
       waterColMask[i] = mask;
       if (mask > 0.05) waterPixels++;
 
-      const anchor = Math.pow(Math.max(l, 0.03), 0.45);
+      const anchor = POW_045_LUT[Math.min(1024, (l * 1024 + 0.5) | 0)];
       // In green water, keep water luminance natural and balanced (gentle 0.03 lift instead of 0.14)
       const lift = isGreenWater
         ? wet * 0.03 * mask * anchor
@@ -1852,116 +1803,127 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
     for (let i = 0; i < n; i++) curL[i] = luma(R[i], G[i], B[i]);
 
     const rMorph = 3;
-    // Separable 1D opening (horizontal min then max)
-    const openX = new Float32Array(n);
-    const tempX = new Float32Array(n);
-    for (let y = 0; y < h; y++) {
-      const row = y * w;
-      for (let x = 0; x < w; x++) {
-        let mn = 1.0;
-        const xMin = Math.max(0, x - rMorph);
-        const xMax = Math.min(w - 1, x + rMorph);
-        for (let k = xMin; k <= xMax; k++) {
-          const val = curL[row + k];
-          if (val < mn) mn = val;
-        }
-        tempX[row + x] = mn;
-      }
-      for (let x = 0; x < w; x++) {
-        let mx = 0.0;
-        const xMin = Math.max(0, x - rMorph);
-        const xMax = Math.min(w - 1, x + rMorph);
-        for (let k = xMin; k <= xMax; k++) {
-          const val = tempX[row + k];
-          if (val > mx) mx = val;
-        }
-        openX[row + x] = mx;
-      }
-    }
-
-    // Separable 1D opening (vertical min then max)
-    const openY = new Float32Array(n);
-    const tempY = new Float32Array(n);
-    for (let x = 0; x < w; x++) {
-      for (let y = 0; y < h; y++) {
-        let mn = 1.0;
-        const yMin = Math.max(0, y - rMorph);
-        const yMax = Math.min(h - 1, y + rMorph);
-        for (let k = yMin; k <= yMax; k++) {
-          const val = curL[k * w + x];
-          if (val < mn) mn = val;
-        }
-        tempY[y * w + x] = mn;
-      }
-      for (let y = 0; y < h; y++) {
-        let mx = 0.0;
-        const yMin = Math.max(0, y - rMorph);
-        const yMax = Math.min(h - 1, y + rMorph);
-        for (let k = yMin; k <= yMax; k++) {
-          const val = tempY[k * w + x];
-          if (val > mx) mx = val;
-        }
-        openY[y * w + x] = mx;
-      }
-    }
-
-    // A structural edge/shape survives horizontal OR vertical opening.
-    // Isolated circular/elliptical backscatter particles disappear in BOTH!
-    const cleanR = new Float32Array(n);
-    const cleanG = new Float32Array(n);
-    const cleanB = new Float32Array(n);
-    const cleanWeight = new Float32Array(n);
-
     const thresh = 0.14 - speckAmt * 0.04;
+    const spotIndices = [];
 
+    // Fast candidate-gated 1D directional opening:
+    // Only evaluates morphological opening on open-water candidate pixels,
+    // with exact mathematical early-exit when local window has no dark background support.
     for (let y = 1; y < h - 1; y++) {
       const yNorm = y / (h - 1);
+      const isTop = yNorm < 0.08;
       const row = y * w;
+      const y0 = Math.max(0, y - rMorph);
+      const y1 = Math.min(h - 1, y + rMorph);
       for (let x = 1; x < w - 1; x++) {
         const i = row + x;
         const l = curL[i];
-        if (yNorm < 0.08 && l > 0.88) {
-          cleanR[i] = R[i]; cleanG[i] = G[i]; cleanB[i] = B[i]; cleanWeight[i] = 1.0;
-          continue;
+        if (l <= 0.25 || texFine[i] >= 0.12 || waterSmooth[i] <= 0.60 || subjectMask[i] >= 0.10) continue;
+        if (isTop && l > 0.88) continue;
+
+        const minReq = l - thresh;
+        const x0 = Math.max(0, x - rMorph);
+        const x1 = Math.min(w - 1, x + rMorph);
+
+        let hasDarkX = false;
+        for (let j = x0; j <= x1; j++) {
+          if (curL[row + j] < minReq) {
+            hasDarkX = true;
+            break;
+          }
         }
-        const structEnv = Math.max(openX[i], openY[i]);
-        const peak = l - structEnv;
+        if (!hasDarkX) continue;
 
-        // Backscatter spots are strictly isolated bright flash specks in pure open water.
-        // Subjects, sand ripples, shells, corals, and turtles are 100% PROTECTED from backscatter inpainting!
-        const isBackscatter = peak > thresh && l > 0.25 && texFine[i] < 0.12 && waterSmooth[i] > 0.60 && subjectMask[i] < 0.10;
+        let hasDarkY = false;
+        for (let j = y0; j <= y1; j++) {
+          if (curL[j * w + x] < minReq) {
+            hasDarkY = true;
+            break;
+          }
+        }
+        if (!hasDarkY) continue;
 
-        if (isBackscatter) {
+        let ox = 0;
+        for (let k = x0; k <= x1; k++) {
+          let mn = 1;
+          const k0 = Math.max(0, k - rMorph);
+          const k1 = Math.min(w - 1, k + rMorph);
+          for (let j = k0; j <= k1; j++) {
+            const v = curL[row + j];
+            if (v < mn) mn = v;
+          }
+          if (mn > ox) ox = mn;
+        }
+        if (l - ox <= thresh) continue;
+
+        let oy = 0;
+        for (let k = y0; k <= y1; k++) {
+          let mn = 1;
+          const k0 = Math.max(0, k - rMorph);
+          const k1 = Math.min(h - 1, k + rMorph);
+          for (let j = k0; j <= k1; j++) {
+            const v = curL[j * w + x];
+            if (v < mn) mn = v;
+          }
+          if (mn > oy) oy = mn;
+        }
+        if (l - oy > thresh) {
           speckMask[i] = 1;
+          spotIndices.push(i);
           backscatterSpots++;
-        } else {
-          cleanR[i] = R[i];
-          cleanG[i] = G[i];
-          cleanB[i] = B[i];
-          cleanWeight[i] = 1.0;
         }
       }
     }
 
     if (backscatterSpots > 0) {
-      // Normalized Convolution Inpainting from clean surrounding pixels
       const rInpaint = rMorph + 2;
-      const numR = boxBlur(cleanR, w, h, rInpaint);
-      const numG = boxBlur(cleanG, w, h, rInpaint);
-      const numB = boxBlur(cleanB, w, h, rInpaint);
-      const den = boxBlur(cleanWeight, w, h, rInpaint);
       const blendStr = clamp01(speckAmt * 1.35);
+      const area = (rInpaint * 2 + 1) * (rInpaint * 2 + 1);
+      const minCleanCount = Math.max(1, Math.ceil(area * 0.02));
+      const newR = new Float32Array(backscatterSpots);
+      const newG = new Float32Array(backscatterSpots);
+      const newB = new Float32Array(backscatterSpots);
+      const valid = new Uint8Array(backscatterSpots);
 
-      for (let i = 0; i < n; i++) {
-        if (!speckMask[i]) continue;
-        const wgt = den[i];
-        if (wgt > 0.02) {
-          const inpR = numR[i] / wgt;
-          const inpG = numG[i] / wgt;
-          const inpB = numB[i] / wgt;
-          R[i] = clamp01(R[i] * (1 - blendStr) + inpR * blendStr);
-          G[i] = clamp01(G[i] * (1 - blendStr) + inpG * blendStr);
-          B[i] = clamp01(B[i] * (1 - blendStr) + inpB * blendStr);
+      for (let idx = 0; idx < backscatterSpots; idx++) {
+        const i = spotIndices[idx];
+        const y = (i / w) | 0;
+        const x = i - y * w;
+        const yMin = Math.max(1, y - rInpaint);
+        const yMax = Math.min(h - 2, y + rInpaint);
+        const xMin = Math.max(1, x - rInpaint);
+        const xMax = Math.min(w - 2, x + rInpaint);
+        let sR = 0;
+        let sG = 0;
+        let sB = 0;
+        let cnt = 0;
+        for (let ny = yMin; ny <= yMax; ny++) {
+          const nRow = ny * w;
+          for (let nx = xMin; nx <= xMax; nx++) {
+            const ni = nRow + nx;
+            if (!speckMask[ni]) {
+              sR += R[ni];
+              sG += G[ni];
+              sB += B[ni];
+              cnt++;
+            }
+          }
+        }
+        if (cnt >= minCleanCount) {
+          const inv = 1 / cnt;
+          newR[idx] = clamp01(R[i] * (1 - blendStr) + sR * inv * blendStr);
+          newG[idx] = clamp01(G[i] * (1 - blendStr) + sG * inv * blendStr);
+          newB[idx] = clamp01(B[i] * (1 - blendStr) + sB * inv * blendStr);
+          valid[idx] = 1;
+        }
+      }
+
+      for (let idx = 0; idx < backscatterSpots; idx++) {
+        if (valid[idx]) {
+          const i = spotIndices[idx];
+          R[i] = newR[idx];
+          G[i] = newG[idx];
+          B[i] = newB[idx];
           speckPixels++;
         }
       }
