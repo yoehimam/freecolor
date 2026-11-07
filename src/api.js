@@ -96,6 +96,12 @@ export const api = {
     }
   },
 
+  removeAsset(assetId) {
+    if (useOffline || isNativeApp() || (typeof assetId === 'string' && assetId.startsWith('local-'))) {
+      offlineEngine.removeAsset(assetId);
+    }
+  },
+
   uploadReference(file, name = '') {
     const form = new FormData();
     form.append('photo', file);

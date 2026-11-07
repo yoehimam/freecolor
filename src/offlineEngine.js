@@ -175,8 +175,19 @@ export const offlineEngine = {
     const outImgData = new ImageData(new Uint8ClampedArray(res.data.buffer), width, height);
     ctx.putImageData(outImgData, 0, 0);
 
-    const quality = 0.90; // High quality Full HD
-    const base64Data = canvas.toDataURL(format, quality);
+    // Ensure Full HD quality while strictly keeping file size <= 2MB
+    let quality = 0.88;
+    let base64Data = canvas.toDataURL(format, quality);
+    // Estimate byte size from Base64 length: (len - header) * 3 / 4
+    let commaIdx = base64Data.indexOf(',');
+    let rawLen = commaIdx >= 0 ? base64Data.length - commaIdx - 1 : base64Data.length;
+    let estimatedBytes = Math.round((rawLen * 3) / 4);
+
+    if (estimatedBytes > 1.95 * 1024 * 1024) {
+      quality = 0.78;
+      base64Data = canvas.toDataURL(format, quality);
+    }
+
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, format, quality));
 
     const ext = format === 'image/webp' ? '.webp' : '.jpg';
@@ -203,16 +214,31 @@ export const offlineEngine = {
       }
     }
 
-    const downloadUrl = URL.createObjectURL(blob);
+    const downloadUrl = blob ? URL.createObjectURL(blob) : '';
     return {
       blob,
       url: downloadUrl,
       base64Data,
       filename,
-      sizeBytes: blob ? blob.size : 0,
+      sizeBytes: blob ? blob.size : estimatedBytes,
       gallerySaved,
       galleryPath
     };
+  },
+
+  removeAsset(assetId) {
+    const record = assetStore.get(assetId);
+    if (record) {
+      try {
+        if (record.asset?.viewUrl?.startsWith('blob:')) {
+          URL.revokeObjectURL(record.asset.viewUrl);
+        }
+        if (record.asset?.origUrl?.startsWith('blob:')) {
+          URL.revokeObjectURL(record.asset.origUrl);
+        }
+      } catch {}
+      assetStore.delete(assetId);
+    }
   },
 
   getHealth() {

@@ -1265,19 +1265,23 @@ button {
 }
 
 .strip-item {
+  position: relative;
   flex: 0 0 auto;
   width: 76px;
   height: 56px;
   border: 1px solid var(--line);
+  border-radius: 8px;
   overflow: hidden;
-  opacity: 0.6;
+  opacity: 0.75;
   transition: opacity 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
 }
 
 .strip-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
 }
 
 .strip-item:hover {
@@ -1287,6 +1291,68 @@ button {
 .strip-item.on {
   opacity: 1;
   border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan);
+}
+
+.strip-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(10, 20, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 5;
+  padding: 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+  transition: all 0.15s ease;
+}
+
+.strip-remove:hover,
+.strip-remove:active {
+  background: #ff3b30;
+  border-color: #ff3b30;
+  color: #ffffff;
+  transform: scale(1.15);
+}
+
+.stage-mini-loading {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(4, 19, 28, 0.85);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #00d4ff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.mini-spin {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 212, 255, 0.3);
+  border-top-color: #00d4ff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
 }
 
 .strip-add {
@@ -3405,6 +3471,14 @@ input[type='range'].hsl-range-track::-webkit-slider-thumb {
     width: 66px !important;
     height: 50px !important;
     border-radius: 8px !important;
+  }
+
+  .strip-remove {
+    width: 22px !important;
+    height: 22px !important;
+    font-size: 14px !important;
+    top: 2px !important;
+    right: 2px !important;
   }
 
   .strip-add {

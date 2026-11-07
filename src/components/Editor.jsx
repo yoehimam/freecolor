@@ -180,20 +180,18 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Dynamic 0-100% Progress Processor
+  // Dynamic 0-100% Progress Processor - ONLY for heavy operations (uploading or explicit AI analysis), NEVER during manual slider grading!
   useEffect(() => {
     let timer = null;
-    const isBusy = rendering || uploading || aiBusy;
-    if (isBusy) {
-      setProgress((prev) => ({
+    const isHeavy = uploading || aiBusy;
+    if (isHeavy) {
+      setProgress({
         active: true,
-        percent: prev.active ? Math.max(prev.percent, 20) : 12,
+        percent: 15,
         stage: uploading
-          ? 'Mengunggah & Membaca Spektrum Optik…'
-          : aiBusy
-            ? 'AI Menganalisis Kedalaman & Lapisan Air…'
-            : 'Menganalisis Kedalaman Kolom Air & Pasir…',
-      }));
+          ? 'Membaca Spektrum Optik & Kedalaman Kolom Air…'
+          : 'AI Gemini Menganalisis Kedalaman & Pigmen Warna…',
+      });
 
       const startTime = Date.now();
       timer = setInterval(() => {
@@ -202,38 +200,37 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
           if (!prev.active) return prev;
           let nextPct = prev.percent;
           let stage = prev.stage;
-          if (elapsed < 240) {
-            nextPct = Math.min(45, prev.percent + 8);
-            stage = 'Memisahkan Lapisan Air Laut, Pasir & Subjek…';
-          } else if (elapsed < 550) {
-            nextPct = Math.min(78, prev.percent + 5);
-            stage = 'Memulihkan Pigmen Alami & Mengeliminasi Backscatter…';
-          } else if (elapsed < 950) {
+          if (elapsed < 350) {
+            nextPct = Math.min(48, prev.percent + 6);
+            stage = uploading
+              ? 'Memisahkan Kolom Air Laut, Karang & Subjek…'
+              : 'Memetakan Lapisan Air Laut, Pasir & Subjek…';
+          } else if (elapsed < 850) {
+            nextPct = Math.min(78, prev.percent + 4);
+            stage = 'Menghitung Kalibrasi Pigmen & Restorasi Alami…';
+          } else if (elapsed < 1600) {
             nextPct = Math.min(94, prev.percent + 2);
-            stage = 'Penyempurnaan Rekonstruksi Detail…';
-          } else {
-            nextPct = Math.min(98, prev.percent + 1);
-            stage = 'Menyelesaikan Tampilan…';
+            stage = 'Memvalidasi Rekonstruksi Struktur Foto…';
           }
           return { active: true, percent: nextPct, stage };
         });
-      }, 50);
+      }, 60);
     } else {
-      // Reached completion
+      // Operation completed cleanly
       setProgress((prev) => {
         if (!prev.active) return prev;
         return { active: true, percent: 100, stage: 'Restorasi Selesai!' };
       });
       const hideTimer = setTimeout(() => {
         setProgress({ active: false, percent: 0, stage: '' });
-      }, 320);
+      }, 300);
       return () => clearTimeout(hideTimer);
     }
 
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [rendering, uploading, aiBusy]);
+  }, [uploading, aiBusy]);
 
   const uploadFiles = useCallback(async (fileList) => {
     const rawList = Array.from(fileList || []);
@@ -370,6 +367,18 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
     setAi(null);
     setNotice('Kembali ke setelan restorasi otomatis awal.');
   }
+
+  const removeAsset = useCallback((idToRemove) => {
+    api.removeAsset(idToRemove);
+    setAssets((prev) => {
+      const remaining = prev.filter((a) => a.id !== idToRemove);
+      if (activeId === idToRemove) {
+        const nextActive = remaining.length > 0 ? remaining[0].id : null;
+        setActiveId(nextActive);
+      }
+      return remaining;
+    });
+  }, [activeId]);
 
   function updateSingleSlider(key, val) {
     setParams((prev) => ({ ...prev, [key]: val }));
@@ -581,6 +590,14 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
                 </button>
               )}
 
+              {/* Discreet non-blocking live update indicator during manual grading */}
+              {rendering && !progress.active && (
+                <div className="stage-mini-loading" title="Memperbarui tampilan foto...">
+                  <span className="mini-spin" />
+                  <span>Memperbarui…</span>
+                </div>
+              )}
+
               {/* High-Tech 0-100% Processing Progress Overlay */}
               {progress.active && (
                 <div className="processing-progress-overlay">
@@ -612,14 +629,28 @@ export default function Editor({ user, demoMode = true, onAuth, onHome, onLogout
 
             <div className="filmstrip">
               {assets.map((a) => (
-                <button
+                <div
                   key={a.id}
                   className={`strip-item ${a.id === activeId ? 'on' : ''}`}
                   onClick={() => setActiveId(a.id)}
                   title={a.name}
+                  role="button"
+                  tabIndex={0}
                 >
                   <img src={a.thumbUrl} alt={a.name} />
-                </button>
+                  <button
+                    type="button"
+                    className="strip-remove"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeAsset(a.id);
+                    }}
+                    title={`Hapus ${a.name}`}
+                    aria-label={`Hapus ${a.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
               <button className="strip-add" onClick={() => inputRef.current?.click()} aria-label="Tambah foto">
                 +

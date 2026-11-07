@@ -2,8 +2,7 @@ package id.freecolor.underwater;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.content.Intent;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -39,18 +38,22 @@ public class FreeColorGalleryPlugin extends Plugin {
         }
 
         try {
-            // Remove data URI prefix if present
+            // Remove data URI prefix if present (e.g. data:image/jpeg;base64,)
             if (base64Data.contains(",")) {
                 base64Data = base64Data.substring(base64Data.indexOf(",") + 1);
             }
 
+            // Decode directly into image file bytes (zero extra bitmap allocation to guarantee smooth performance on all phones)
             byte[] decoded = Base64.decode(base64Data, Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
-
-            if (bitmap == null) {
-                call.reject("Gagal membaca data gambar bitmap");
+            if (decoded == null || decoded.length == 0) {
+                call.reject("Gagal memproses data gambar");
                 return;
             }
+
+            boolean isWebP = filename.toLowerCase().endsWith(".webp");
+            String mimeType = isWebP ? "image/webp" : "image/jpeg";
+            long nowMs = System.currentTimeMillis();
+            long nowSec = nowMs / 1000;
 
             OutputStream fos = null;
             Uri imageUri = null;
@@ -61,15 +64,19 @@ public class FreeColorGalleryPlugin extends Plugin {
                 ContentResolver resolver = getContext().getContentResolver();
                 ContentValues contentValues = new ContentValues();
                 contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+                contentValues.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
                 contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
+                // Essential date fields so phone gallery immediately displays it on top of "Photos" / "Recents"
+                contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+                contentValues.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
+                contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
                 contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
                 imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
                 if (imageUri != null) {
                     fos = resolver.openOutputStream(imageUri);
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos);
                     if (fos != null) {
+                        fos.write(decoded);
                         fos.flush();
                         fos.close();
                     }
@@ -81,7 +88,7 @@ public class FreeColorGalleryPlugin extends Plugin {
                     return;
                 }
             } else {
-                // Android 9 and below: Direct public Pictures directory
+                // Android 9 and below: Direct public Pictures/FreeColor directory
                 File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
                 File freeColorDir = new File(picturesDir, "FreeColor");
                 if (!freeColorDir.exists()) {
@@ -90,7 +97,7 @@ public class FreeColorGalleryPlugin extends Plugin {
 
                 savedFile = new File(freeColorDir, filename);
                 fos = new FileOutputStream(savedFile);
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos);
+                fos.write(decoded);
                 fos.flush();
                 fos.close();
 
@@ -98,7 +105,7 @@ public class FreeColorGalleryPlugin extends Plugin {
                 MediaScannerConnection.scanFile(
                     getContext(),
                     new String[]{savedFile.getAbsolutePath()},
-                    new String[]{"image/jpeg"},
+                    new String[]{mimeType},
                     null
                 );
             }
@@ -107,6 +114,7 @@ public class FreeColorGalleryPlugin extends Plugin {
             result.put("success", true);
             result.put("filename", filename);
             result.put("album", "Pictures/FreeColor");
+            result.put("sizeBytes", decoded.length);
             result.put("message", "Foto tersimpan di Galeri album 'FreeColor'!");
             call.resolve(result);
 

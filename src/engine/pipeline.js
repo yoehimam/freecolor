@@ -865,11 +865,11 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
       autoGamma = clamp(1 - (1 - rawGamma) * masterStr, 0.82, 1.0);
     }
 
-    // If G median exceeds tropical sapphire ratio (midB * 0.80 in teal water, or midB * 0.95 in green/blue water),
-    // pull G midtone curve toward B so murky 186° cyan water becomes crystal 203° sapphire-cobalt blue!
-    const targetMidG = isTealWater ? midB * 0.80 : midB * 0.95;
+    // If G median exceeds tropical sapphire ratio, gently balance G toward B
+    // without flattening or crushing natural turquoise water tones
+    const targetMidG = isGreenWater ? midB * 0.95 : isTealWater ? midB * 0.88 : midB * 0.92;
     const greenMidExcess = Math.max(0, midG - targetMidG);
-    const gGammaPull = clamp(greenMidExcess * (isGreenWater ? 0.88 : isTealWater ? 0.92 : 0.75) * rStr, 0, 0.24);
+    const gGammaPull = clamp(greenMidExcess * (isGreenWater ? 0.65 : isTealWater ? 0.55 : 0.45) * rStr, 0, 0.16);
 
     // Target subject red quantile: ensure p85_R reaches ~0.88 * p85_G regardless of depth!
     const targetP85R = Math.max(0.38, p85G * 0.88);
@@ -936,7 +936,7 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
           const midMask = 4 * g * (1 - g);
           // In green water, deepen G toward rich ocean teal-blue; in teal water, shift open water from 186° cyan to 203° sapphire blue
           const gPullFactor = isGreenWater ? 0.55 : isTealWater ? 0.85 * (1 - sub * 0.45) : 0.65 + 0.35 * sub;
-          const bLiftFactor = isGreenWater ? 0.10 : isTealWater ? 0.48 * (1 - sub * 0.55) : 0.38 * (1 - sub * 0.65);
+          const bLiftFactor = isGreenWater ? 0.08 : isTealWater ? 0.20 * (1 - sub * 0.55) : 0.18 * (1 - sub * 0.65);
           g = clamp01(g - gGammaPull * midMask * gPullFactor);
           b = clamp01(b + gGammaPull * midMask * bLiftFactor);
         }
@@ -1520,11 +1520,6 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
           r += (tr - r) * t;
           g += (tg - g) * t;
           b += (tb - b) * t;
-
-          const maxOceanG = b * ((isGreenWater ? 0.85 : 0.72) + 0.06 * surfMix);
-          if (g > maxOceanG) {
-            g = maxOceanG;
-          }
         } else {
           // Gentle, natural steer toward tropical marine turquoise-azure; capped at 0.38
           const t = Math.min(0.16, wtint * mask * 0.34);
@@ -1534,11 +1529,6 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
           r += (tr - r) * t;
           g += (tg - g) * t;
           b += (tb - b) * t;
-
-          const maxOceanG = b * 0.78;
-          if (g > maxOceanG) {
-            g = maxOceanG;
-          }
         }
       }
 
