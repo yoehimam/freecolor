@@ -1514,9 +1514,9 @@ let swReg = null;
 // online – liveaboards (Torsten). Registered on every visit; the download streamer uses the same registration.
 const SW_URL = '/color-correction/sw.js' + (DEV && new URLSearchParams(location.search).has('offline') ? '?offline=1' : '');
 const SW_SCOPE = location.pathname === '/' ? '/' : '/color-correction/';   // a dive centre's address serves the app at its root
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || DEV)) {
+// Service worker registration disabled to prevent stale caching
+if (false && 'serviceWorker' in navigator && (location.protocol === 'https:' || DEV)) {
   navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }).then(r => { swReg = swReg || r; }).catch(() => { });
-  // freeColors Underwater bekerja 100% offline
 }
 async function streamWorker() {
   if (!swReg) { swReg = await navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }); }
