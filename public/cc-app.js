@@ -1137,6 +1137,11 @@ function applyPreset(key, detected = false) {
   ui.redRec.value = redPos(p); ui.contrast.value = conPos(p); ui.saturation.value = satPos(p);
   hidden = { alphaRed: p.alphaRed, pct: p.pct, capR: p.capR, floorB: p.floorB, minSpan: p.minSpan, satCap: p.satCap, waterKeep: p.waterKeep || 0, greenWater: p.greenWater || null };
   syncOutputs();
+  if (!detected && previewItem && previewItem.status === 'done') {
+    previewItem.status = 'queued';
+    previewItem.result = null;
+    previewItem.outFile = null;
+  }
   if (!detected) ui.scene.value = key;
   ui.scene.options[0].textContent = detected ? `Auto (recommended) – detected: ${p.label}` : 'Auto (recommended)';
   ui.sceneNote.textContent = (detected ? '' : 'Diterapkan ke semua file di antrean. ') + {
@@ -1206,6 +1211,11 @@ function userTweak() {
   a.d.strength = +ui.strength.value - Math.round(p.strength * 100); a.d.red = +ui.redRec.value - redPos(p);
   a.d.contrast = +ui.contrast.value - conPos(p); a.d.sat = +ui.saturation.value - satPos(p);
   a.green = ui.greenish.checked === (p.blue > 0) ? null : ui.greenish.checked;
+  if (it && it.status === 'done') {
+    it.status = 'queued';
+    it.result = null;
+    it.outFile = null;
+  }
   if (applyTo === 'all') for (const x of items) delete x.adj;
   renderQueue(); updateAdjUi(); stepSummaries();
 }
@@ -1606,12 +1616,14 @@ async function saveOut(item) {
     }
   }
 
-  // 2. Share sheet on iOS Safari mobile:
+  // 2. Share sheet on Mobile Web (Android Chrome / iOS Safari):
   const isVideo = /\.(mp4|mov|m4v)$/i.test(filename);
   const file = new File([f], filename, { type: isVideo ? 'video/mp4' : 'image/jpeg' });
-  if (IS_MOBILE && !IS_ANDROID && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (IS_MOBILE && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: file.name });
+      setStatus(`Tersimpan / Dibagikan: ${filename}`);
+      showNotice(`<b>✓ File Siap:</b> ${esc(filename)} tersimpan/dibagikan.`);
       return;
     } catch (e) {
       if (e && e.name === 'AbortError') return;
@@ -1628,7 +1640,7 @@ async function saveOut(item) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   setStatus(`Tersimpan / Mengunduh: ${filename}`);
-  showNotice(`<b>✓ Berhasil Disimpan!</b><br>${esc(filename)} tersimpan.`);
+  showNotice(`<b>✓ Berhasil Disimpan!</b> <a href="${url}" download="${filename}" class="btn btn-glow" style="display:inline-block;margin-top:4px;padding:2px 8px;font-size:0.74rem;text-decoration:none;">Unduh ${esc(filename)}</a>`);
 }
 // Some hardware encoders (seen with AMD + Edge on Windows) do not honour high variable bitrates and deliver a fraction
 // of what was asked for. The first 3 seconds are measured; if the encoder is far below target, the file is started
@@ -2178,7 +2190,22 @@ async function start() { // a double tap (two Start buttons) must not run the pr
 async function startInner() {
   if (running) return;
   await copying; await wmReady;
-  if (!items.some(i => i.status === 'queued' || i.status === 'error' || i.status === 'cancelled')) { if (!items.length) ui.fileInput.click(); else setStatus('Semua file dalam antrean sudah selesai diproses.'); return; }
+  if (!items.some(i => i.status === 'queued' || i.status === 'error' || i.status === 'cancelled')) {
+    if (!items.length) {
+      ui.fileInput.click();
+      return;
+    }
+    const targetItem = (selected >= 0 && items[selected]) ? items[selected] : items[0];
+    if (targetItem) {
+      targetItem.status = 'queued';
+      targetItem.result = null;
+      targetItem.outFile = null;
+      renderQueue();
+    } else {
+      ui.fileInput.click();
+      return;
+    }
+  }
   if (quotaBlocks(items.filter(i => (i.status === 'queued' || i.status === 'error' || i.status === 'cancelled') && !isPhoto(i)).length)) { setStatus(`The ${quota.limit} videos of this subscription year are used – photos still work. Write to jonas@jjsap.com for more.`, 'error'); return; }
   // Seamless start: folder selection is 100% optional
   if (outMode !== 'fsa') { for (const it of items) if (it.status !== 'done') it.outFile = null; await opfsClear(); }

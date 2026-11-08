@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -23,6 +24,8 @@ import java.util.Map;
 @CapacitorPlugin(name = "FreeColorGallery")
 public class FreeColorGalleryPlugin extends Plugin {
 
+    private static final String TAG = "FreeColorGallery";
+
     private static class SessionData {
         OutputStream fos;
         Uri mediaUri;
@@ -36,6 +39,67 @@ public class FreeColorGalleryPlugin extends Plugin {
     }
 
     private final Map<String, SessionData> activeSessions = new HashMap<>();
+
+    private Uri createMediaStoreUri(ContentResolver resolver, String filename, String mimeType, boolean isVideo, long nowSec, long nowMs) {
+        String primaryDir = isVideo ? "Movies/FreeColor/" : "Pictures/FreeColor/";
+        String fallbackDir = isVideo ? "Movies/" : "Pictures/";
+        Uri collection = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+
+        // Try 1: with primaryDir (trailing slash is mandatory on Android Q+)
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+            cv.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, primaryDir);
+            cv.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
+            cv.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
+            cv.put(MediaStore.MediaColumns.IS_PENDING, 1);
+            if (!isVideo) cv.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+            Uri uri = resolver.insert(collection, cv);
+            if (uri != null) return uri;
+        } catch (Throwable t) {
+            Log.w(TAG, "MediaStore insert 1 failed: " + t.getMessage());
+        }
+
+        // Try 2: without IS_PENDING (some Android 10/11 ROMs fail with IS_PENDING)
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+            cv.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, primaryDir);
+            if (!isVideo) cv.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+            Uri uri = resolver.insert(collection, cv);
+            if (uri != null) return uri;
+        } catch (Throwable t) {
+            Log.w(TAG, "MediaStore insert 2 failed: " + t.getMessage());
+        }
+
+        // Try 3: fallback standard root directory (e.g. Pictures/ or Movies/)
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+            cv.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, fallbackDir);
+            Uri uri = resolver.insert(collection, cv);
+            if (uri != null) return uri;
+        } catch (Throwable t) {
+            Log.w(TAG, "MediaStore insert 3 failed: " + t.getMessage());
+        }
+
+        // Try 4: Downloads collection (universal across all Android 10+ devices)
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+            cv.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/FreeColor/");
+            Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+            if (uri != null) return uri;
+        } catch (Throwable t) {
+            Log.w(TAG, "MediaStore insert 4 failed: " + t.getMessage());
+        }
+
+        return null;
+    }
 
     @PluginMethod
     public void saveImageToGallery(PluginCall call) {
@@ -73,7 +137,6 @@ public class FreeColorGalleryPlugin extends Plugin {
             boolean isPng = lower.endsWith(".png");
 
             String mimeType = isVideo ? "video/mp4" : (isWebP ? "image/webp" : (isPng ? "image/png" : "image/jpeg"));
-            String relativeDir = isVideo ? (Environment.DIRECTORY_MOVIES + File.separator + "FreeColor") : (Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
 
             long nowMs = System.currentTimeMillis();
             long nowSec = nowMs / 1000;
@@ -86,20 +149,8 @@ public class FreeColorGalleryPlugin extends Plugin {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     ContentResolver resolver = getContext().getContentResolver();
-                    ContentValues contentValues = new ContentValues();
-                    contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                    contentValues.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                    contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir);
-                    contentValues.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
-                    contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
-                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                    mediaUri = createMediaStoreUri(resolver, filename, mimeType, isVideo, nowSec, nowMs);
 
-                    Uri collection = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                    if (!isVideo) {
-                        contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
-                    }
-
-                    mediaUri = resolver.insert(collection, contentValues);
                     if (mediaUri != null) {
                         fos = resolver.openOutputStream(mediaUri);
                         if (fos != null) {
@@ -108,9 +159,12 @@ public class FreeColorGalleryPlugin extends Plugin {
                             fos.close();
                             fos = null;
                         }
-                        contentValues.clear();
-                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                        resolver.update(mediaUri, contentValues, null, null);
+
+                        try {
+                            ContentValues cv = new ContentValues();
+                            cv.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                            resolver.update(mediaUri, cv, null, null);
+                        } catch (Throwable ignored) {}
 
                         try {
                             resolver.notifyChange(mediaUri, null);
@@ -124,12 +178,15 @@ public class FreeColorGalleryPlugin extends Plugin {
                         savedViaMediaStore = true;
                     }
                 } catch (Exception qEx) {
+                    Log.e(TAG, "MediaStore write failed: ", qEx);
                     savedViaMediaStore = false;
                 }
             }
 
             if (!savedViaMediaStore) {
-                File targetDir = isVideo ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                File targetDir = isVideo
+                    ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                    : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
                 File freeColorDir = new File(targetDir, "FreeColor");
                 if (!freeColorDir.exists()) {
                     freeColorDir.mkdirs();
@@ -165,6 +222,7 @@ public class FreeColorGalleryPlugin extends Plugin {
             call.resolve(result);
 
         } catch (Exception e) {
+            Log.e(TAG, "saveImageToGallery exception: ", e);
             call.reject("Gagal menyimpan ke galeri HP: " + e.getMessage());
         }
     }
@@ -195,7 +253,6 @@ public class FreeColorGalleryPlugin extends Plugin {
                 boolean isWebP = lower.endsWith(".webp");
                 boolean isPng = lower.endsWith(".png");
                 session.mimeType = session.isVideo ? "video/mp4" : (isWebP ? "image/webp" : (isPng ? "image/png" : "image/jpeg"));
-                String relativeDir = session.isVideo ? (Environment.DIRECTORY_MOVIES + File.separator + "FreeColor") : (Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
 
                 long nowMs = System.currentTimeMillis();
                 session.nowSec = nowMs / 1000;
@@ -204,31 +261,22 @@ public class FreeColorGalleryPlugin extends Plugin {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
                         ContentResolver resolver = getContext().getContentResolver();
-                        ContentValues contentValues = new ContentValues();
-                        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, session.mimeType);
-                        contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir);
-                        contentValues.put(MediaStore.MediaColumns.DATE_ADDED, session.nowSec);
-                        contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, session.nowSec);
-                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                        session.mediaUri = createMediaStoreUri(resolver, filename, session.mimeType, session.isVideo, session.nowSec, nowMs);
 
-                        Uri collection = session.isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                        if (!session.isVideo) {
-                            contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
-                        }
-
-                        session.mediaUri = resolver.insert(collection, contentValues);
                         if (session.mediaUri != null) {
                             session.fos = resolver.openOutputStream(session.mediaUri);
                             session.savedViaMediaStore = true;
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        Log.e(TAG, "writeMediaChunk initial MediaStore failed: ", e);
                         session.savedViaMediaStore = false;
                     }
                 }
 
                 if (!session.savedViaMediaStore) {
-                    File targetDir = session.isVideo ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                    File targetDir = session.isVideo
+                        ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                        : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
                     File freeColorDir = new File(targetDir, "FreeColor");
                     if (!freeColorDir.exists()) {
                         freeColorDir.mkdirs();
@@ -301,8 +349,9 @@ public class FreeColorGalleryPlugin extends Plugin {
             call.resolve(progress);
 
         } catch (Exception e) {
+            Log.e(TAG, "writeMediaChunk exception: ", e);
             activeSessions.remove(sessionId);
-            call.reject("Gagal menulis chunk ke galeri: " + e.getMessage());
+            call.reject("Gagal menulis file ke galeri: " + e.getMessage());
         }
     }
 }
