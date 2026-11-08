@@ -1,4 +1,6 @@
 @echo off
+set "JAVA_HOME=C:\Program Files\Android\Android Studio2\jbr"
+set "PATH=%JAVA_HOME%\bin;%PATH%"
 echo ========================================================
 echo   FreeColor Underwater - Build Android APK (Offline)
 echo ========================================================
