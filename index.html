@@ -398,6 +398,48 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   if (resultsContainer) observer.observe(resultsContainer, { attributes: true, attributeFilter: ['hidden'] });
   if (batchContainer) observer.observe(batchContainer, { attributes: true, attributeFilter: ['hidden'] });
+
+  // 6. Bingkai Presisi: Menjaga rasio dan batas foto (landscape & portrait) agar tidak membesar/meluap
+  function fitCmpFrame() {
+    const cmp = document.getElementById('cmp');
+    const box = document.querySelector('.canvas-viewport-box');
+    if (!cmp || !box) return;
+    const bw = box.clientWidth - 16;
+    const bh = box.clientHeight - 16;
+    if (bw <= 0 || bh <= 0) return;
+    
+    let ratio = 16 / 9;
+    const ar = cmp.style.aspectRatio;
+    if (ar && ar.includes('/')) {
+      const parts = ar.split('/');
+      const w = parseFloat(parts[0]), h = parseFloat(parts[1]);
+      if (w > 0 && h > 0) ratio = w / h;
+    }
+    
+    if (bw / ratio <= bh) {
+      cmp.style.width = bw + 'px';
+      cmp.style.height = (bw / ratio) + 'px';
+    } else {
+      cmp.style.height = bh + 'px';
+      cmp.style.width = (bh * ratio) + 'px';
+    }
+  }
+
+  window.addEventListener('resize', fitCmpFrame);
+  if (boxEl = document.querySelector('.canvas-viewport-box')) {
+    if (window.ResizeObserver) new ResizeObserver(fitCmpFrame).observe(boxEl);
+  }
+  const cmpEl = document.getElementById('cmp');
+  if (cmpEl) {
+    let lastRatio = '';
+    new MutationObserver(() => {
+      if (cmpEl.style.aspectRatio !== lastRatio) {
+        lastRatio = cmpEl.style.aspectRatio;
+        fitCmpFrame();
+      }
+    }).observe(cmpEl, { attributes: true, attributeFilter: ['style'] });
+  }
+  fitCmpFrame();
 });
 </script>
 </body>
