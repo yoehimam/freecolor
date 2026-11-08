@@ -22,6 +22,7 @@
 
 import { clamp, clamp01, toLin, toSrgb, boxBlur, percentile, luma } from './color.js';
 import { normalizeParams } from './presets.js';
+import { computeNikolajMatrix, calculateDiversityTrust, applyNikolajDeepSeaCorrection } from './nikolajCorrection.js';
 
 const WB_TILE = 96;
 const VEIL_BLOCK = 16;
@@ -307,6 +308,10 @@ export function prepareSourceCache({ data, width, height, channels = 4 }) {
     }
   }
 
+  // Precompute Nikolaj Bech color filter matrix & DeepSeaLabs diversity trust
+  const nikolajMatrix = computeNikolajMatrix(data, w, h, stride);
+  const diversityTrust = calculateDiversityTrust(data, w, h, stride);
+
   const cache = {
     fingerprint,
     w,
@@ -337,6 +342,8 @@ export function prepareSourceCache({ data, width, height, channels = 4 }) {
     wbS_G,
     wbS_B,
     wbS_C,
+    nikolajMatrix,
+    diversityTrust,
   };
   _lastSourceCache = cache;
   return cache;
@@ -497,8 +504,12 @@ export function processImage({ data, width, height, channels = 4 }, rawParams = 
   const isGreenWater = skipRestoration ? false : cache.isGreenWater;
   const isTealWater = skipRestoration ? false : cache.isTealWater;
 
-  // --------------------------------- 1b. Ancuti Red-Channel Compensation & WB
+  // --------------------------------- 1b. Nikolaj Bech & DeepSeaLabs Underwater Color Restoration
   const wbStrength = skipRestoration ? 0 : p.redRestore / 100;
+  if (!skipRestoration && wbStrength > 0.02 && cache.nikolajMatrix) {
+    applyNikolajDeepSeaCorrection(R, G, B, n, cache.nikolajMatrix, wbStrength * 0.75, cache.diversityTrust || 1.0);
+  }
+
   let gainR = 1;
 
   if (wbStrength > 0.02 && n > 64 && cache.wbS_C > 16) {

@@ -244,9 +244,29 @@ export default function Editor() {
     if (firstId) {
       setActiveId(firstId);
       setAiPhase('Mengidentifikasi subjek & warna air…');
-      await new Promise((r) => setTimeout(r, 420));
-      setAiPhase('Menyempurnakan grading warna alami…');
-      await new Promise((r) => setTimeout(r, 360));
+      await new Promise((r) => setTimeout(r, 260));
+      setAiPhase('Menyempurnakan restorasi optik & warna…');
+      
+      const targetAsset = assets.find((a) => a.id === firstId) || null;
+      const initial = {
+        ...GRADE_DEFAULTS,
+        ...(targetAsset?.auto || {}),
+        preset: targetAsset?.auto?.preset || 'freedive',
+        refMatch: 0
+      };
+      setParams(initial);
+      setBaseParams(initial);
+      setIntensity(100);
+      commitParams(initial);
+
+      // Strictly await the render so loading HUD matches actual image readiness!
+      try {
+        const res = await api.render(firstId, initial);
+        setAfterUrl(res.url);
+        setRenderMs(res.ms);
+      } catch (err) {
+        console.warn('Initial render error on upload:', err);
+      }
     }
     setAiPhase('');
     if (failed) setError(`${failed} foto gagal dibuka.`);
@@ -367,12 +387,14 @@ export default function Editor() {
       'Memindai spektrum cahaya & perairan…',
       'Mengukur defisit spektrum merah & kedalaman…',
       'Mengidentifikasi biota laut, karang & diver…',
-      'Menyempurnakan white balance & gradasi alami…'
+      'Menyempurnakan restorasi optik & grading…'
     ];
-    for (let i = 0; i < phases.length; i++) {
+    for (let i = 0; i < phases.length - 1; i++) {
       setAiPhase(phases[i]);
-      await new Promise((r) => setTimeout(r, 260));
+      await new Promise((r) => setTimeout(r, 220));
     }
+    setAiPhase(phases[phases.length - 1]);
+
     const next = {
       ...GRADE_DEFAULTS,
       ...target.auto,
@@ -383,6 +405,16 @@ export default function Editor() {
     setBaseParams(next);
     setIntensity(100);
     commitParams(next);
+
+    // Strictly await actual render result before dismissing the scanning HUD!
+    try {
+      const res = await api.render(target.id, next);
+      setAfterUrl(res.url);
+      setRenderMs(res.ms);
+    } catch (err) {
+      console.warn('Render error during AI grading:', err);
+    }
+
     setAiPhase('');
     setNotice('✨ AI Auto Grading selesai diterapkan!');
   }, [active, commitParams]);
