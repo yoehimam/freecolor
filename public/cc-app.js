@@ -65,7 +65,15 @@ outMode = OUT_OVERRIDE || (support.opfs ? 'opfs' : 'memory');
 tenantReady.then(() => { try { if (!localStorage.getItem('cc-counted')) { localStorage.setItem('cc-counted', '1'); ccStat('user'); } } catch (_) { } });
 
 // remember the output size choice
-try { const v = localStorage.getItem('cc-outsize'); if (v !== null && $('#outSize')) $('#outSize').value = v; } catch (_) { }
+try {
+  let v = localStorage.getItem('cc-outsize');
+  if (IS_MOBILE || IS_ANDROID) {
+    if (!v || v === '0' || v === '3840' || isNaN(+v)) v = '1920';
+  } else if (!v || isNaN(+v)) {
+    v = '1920';
+  }
+  if ($('#outSize')) $('#outSize').value = v;
+} catch (_) { }
 try { const v = localStorage.getItem('cc-sidenote'); if (v !== null && $('#sideNote')) $('#sideNote').value = v; } catch (_) { }
 if ($('#sideNote')) $('#sideNote').addEventListener('change', () => { try { localStorage.setItem('cc-sidenote', $('#sideNote').value); } catch (_) { } ccTrack('side_note', { v: $('#sideNote').value }); });
 if ($('#outSize')) $('#outSize').addEventListener('change', () => { try { localStorage.setItem('cc-outsize', $('#outSize').value); } catch (_) { } ccTrack('out_size', { v: $('#outSize').value }); });
@@ -1648,8 +1656,21 @@ async function processItemOnce(item, base, onProgress) {
   // at 4K50), the 3-second check restarts the file in constant bitrate and the session stays there.
   const encMode = item.encFallback ? item.encFallback.mode : 'variable', encQp = encMode === 'quantizer' ? item.encFallback.qp : 0;
   let oW = W, oH = H, enc;
-  const cap = base.outSize || 0;
-  if (cap && W > cap) { oW = cap; oH = Math.round(H * cap / W / 2) * 2; bitrate = Math.round(bitrate * (oW * oH) / (W * H)); item.downscaled = `${oW}×${oH}`; }
+  // Otomatis convert ke FHD (1080p) agar tidak membebani GPU HP
+  let cap = +base.outSize;
+  if (isNaN(cap) || cap === undefined) cap = 1920;
+  if (IS_MOBILE || IS_ANDROID) {
+    if (cap === 0 || cap > 1920) cap = 1920; // Wajib Full HD di Mobile/HP
+  }
+  const maxSide = Math.max(W, H);
+  if (cap && maxSide > cap) {
+    const scale = cap / maxSide;
+    oW = Math.max(2, Math.floor((W * scale) / 2) * 2);
+    oH = Math.max(2, Math.floor((H * scale) / 2) * 2);
+    bitrate = Math.round(bitrate * (oW * oH) / (W * H));
+    item.downscaled = `${oW}×${oH} (FHD)`;
+    log(`convert ke FHD 1080p: ${oW}x${oH}`);
+  }
   try { enc = await pickEncoder(oW, oH, fps, bitrate, base.outCodec, encMode, encRealtime ? 'realtime' : 'quality'); }
   catch (e) {
     let ok = false;
