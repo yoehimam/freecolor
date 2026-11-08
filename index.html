@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>freeColors Underwater – Editor &amp; Koreksi Warna Bawah Air</title>
-<meta name="description" content="Koreksi warna foto dan video bawah air dengan akselerasi GPU WebGL2 hardware secara instan dan 100% offline. Dikembangkan oleh Yoyo R Himam.">
+<title>freeColors Underwater</title>
+<meta name="description" content="Koreksi warna bawah air offline. Developer: Yoyo R Himam.">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,13 +27,12 @@ if ('caches' in window) {
 </head>
 <body class="app-compact-body">
 
-<!-- Header Studio Ultra Compact (Fixed 44px) -->
+<!-- Header Studio Ringkas (44px) -->
 <header class="app-header">
   <div class="header-left">
-    <a href="/" class="app-brand" aria-label="freeColors Underwater">
+    <a href="/" class="app-brand" aria-label="freeColors">
       <span class="brand-icon">🌊</span>
       <span class="brand-name">freeColors</span>
-      <span class="brand-sub">Underwater</span>
     </a>
     <div class="header-badge hide-mobile">
       <span class="badge-star">★</span> Dev: <b>Yoyo R Himam</b>
@@ -41,9 +40,9 @@ if ('caches' in window) {
   </div>
 
   <div class="header-right">
-    <div class="header-status-pill hide-mobile" id="status">
+    <div class="header-status-pill" id="status">
       <span class="led"></span>
-      <span id="statusText">Siap edit foto/video.</span>
+      <span id="statusText">Siap</span>
     </div>
     <button type="button" class="btn-top-save" id="startTop">
       ⚡ Simpan
@@ -51,55 +50,54 @@ if ('caches' in window) {
   </div>
 </header>
 
-<!-- Workspace Studio 100vh / Zero-Window-Scroll -->
+<!-- Workspace Studio 100vh / Zero Scroll -->
 <main class="app-workspace" id="app">
 
   <!-- ========================================================
-       AREA KIRI (Desktop) / ATAS (Mobile): VISUAL STAGE & KANVAS
+       AREA KANVAS FOTO (DIBINGKAI PRESISI)
        ======================================================== -->
   <section class="stage-container">
     
-    <!-- Stage Mini Toolbar -->
+    <!-- Mini Bar -->
     <div class="stage-mini-bar">
       <div class="stage-file-info">
         <span class="live-dot"></span>
-        <span id="pvInfo" class="pv-info-text">Pratinjau Foto/Video</span>
+        <span id="pvInfo" class="pv-info-text">Pratinjau</span>
       </div>
       <div class="stage-quick-tools">
-        <button type="button" class="tool-btn" id="toggleCompareBtn" title="Ganti mode sebelum/sesudah">
+        <button type="button" class="tool-btn" id="toggleCompareBtn">
           ↔ Bandingkan
         </button>
-        <button type="button" class="tool-btn" id="resetSlidersBtn" title="Reset semua slider ke awal">
+        <button type="button" class="tool-btn" id="resetSlidersBtn">
           ↺ Reset
         </button>
       </div>
     </div>
 
-    <!-- Kanvas Interaktif (Auto-Fit Contain, Tidak Pernah Terpotong / Ter-scroll) -->
+    <!-- Kanvas Viewport dengan Bingkai Presisi -->
     <div class="canvas-viewport-box">
       <div class="cmp" id="cmp">
         <canvas id="pvBefore" width="1280" height="720"></canvas>
         <div class="cmp-after"><canvas id="glc" width="1280" height="720"></canvas></div>
         <div class="cmp-handle" aria-hidden="true"></div>
-        <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Geser untuk membandingkan sebelum dan sesudah">
+        <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Bandingkan">
         <span class="cmp-tag before">SEBELUM</span>
         <span class="cmp-tag after">SESUDAH</span>
         
-        <!-- Layar Kosong Sebelum Ada File -->
-        <div class="pv-empty" id="pvEmpty" role="button" tabindex="0" title="Klik untuk membuka file foto atau video">
+        <!-- Layar Buka File -->
+        <div class="pv-empty" id="pvEmpty" role="button" tabindex="0">
           <div class="pv-empty-inner">
             <div class="empty-icon-bubble">🤿</div>
-            <h2 class="empty-title">Buka Foto atau Video Bawah Air</h2>
-            <p class="empty-desc">Klik di sini untuk memilih dari galeri atau seret file ke layar ini</p>
-            <div class="empty-pill">⚡ 100% Offline GPU WebGL2</div>
+            <h2 class="empty-title">Buka Foto / Video</h2>
+            <p class="empty-desc">Ketuk untuk memilih dari galeri</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Thumbnail Strip Antrean di Bawah Kanvas (Compact Horizontal Carousel) -->
+    <!-- Carousel Antrean Ringkas -->
     <div class="queue-carousel-bar">
-      <div class="queue-uploader-btn" id="drop" role="button" tabindex="0" title="Tambah file foto/video">
+      <div class="queue-uploader-btn" id="drop" role="button" tabindex="0">
         <input id="fileInput" type="file" multiple accept="video/*,image/*,.mp4,.mov,.m4v,.jpg,.jpeg,.png,.webp,.avif,.heic,.heif">
         <span>➕ Tambah</span>
       </div>
@@ -108,14 +106,14 @@ if ('caches' in window) {
   </section>
 
   <!-- ========================================================
-       AREA KANAN (Desktop) / BAWAH (Mobile): PANEL EDIT COMPACT
+       PANEL KONTROL (COMPACT & RINGKAS TANPA TEKS PANJANG)
        ======================================================== -->
   <aside class="controls-panel">
     
-    <!-- 1. Pilihan Pemandangan Air (Scene Pills) -->
+    <!-- 1. Pemandangan Air -->
     <div class="ctrl-group">
       <div class="ctrl-group-header">
-        <span class="ctrl-group-title">🎯 Pemandangan (Scene)</span>
+        <span class="ctrl-group-title">Pemandangan</span>
         <span id="sceneNote" class="ctrl-group-sub"></span>
       </div>
       <div class="scene-pills-scroll">
@@ -138,34 +136,34 @@ if ('caches' in window) {
       </select>
     </div>
 
-    <!-- 2. Slider Penyetelan Warna (Compact Touch Sliders) -->
+    <!-- 2. Slider Penyetelan (Teks Minimalis) -->
     <div class="ctrl-group sliders-group">
       
-      <!-- Pulihkan Merah (Red Recovery) -->
+      <!-- Merah -->
       <div class="compact-slider-row">
         <div class="sl-header">
-          <span class="sl-name">Pulihkan Merah</span>
+          <span class="sl-name">Merah</span>
           <span class="sl-badge red-badge" id="redRecOut">0%</span>
         </div>
-        <input type="range" id="redRec" min="-50" max="50" value="0" class="c-slider red-accent" aria-label="Pulihkan Merah">
+        <input type="range" id="redRec" min="-50" max="50" value="0" class="c-slider red-accent" aria-label="Merah">
       </div>
 
-      <!-- Air Kehijauan (Green Cast) -->
+      <!-- Kehijauan -->
       <div class="compact-slider-row toggle-row">
-        <span class="sl-name">Air Kehijauan (Green Cast)</span>
+        <span class="sl-name">Kehijauan</span>
         <label class="c-toggle">
           <input type="checkbox" id="greenish">
           <span class="c-toggle-track"></span>
         </label>
       </div>
 
-      <!-- Kekuatan Koreksi (Strength) -->
+      <!-- Kekuatan -->
       <div class="compact-slider-row">
         <div class="sl-header">
-          <span class="sl-name">Kekuatan Koreksi</span>
+          <span class="sl-name">Kekuatan</span>
           <span class="sl-badge" id="strengthOut">100%</span>
         </div>
-        <input type="range" id="strength" min="0" max="200" value="100" class="c-slider" aria-label="Kekuatan Koreksi">
+        <input type="range" id="strength" min="0" max="200" value="100" class="c-slider" aria-label="Kekuatan">
       </div>
 
       <!-- Kontras -->
@@ -186,48 +184,48 @@ if ('caches' in window) {
         <input type="range" id="saturation" min="-50" max="50" value="0" class="c-slider" aria-label="Saturasi">
       </div>
 
-      <!-- Suhu / Kehangatan (Warmth) -->
+      <!-- Suhu -->
       <div class="compact-slider-row">
         <div class="sl-header">
-          <span class="sl-name">Kehangatan (Suhu)</span>
+          <span class="sl-name">Suhu</span>
           <span class="sl-badge warm-badge" id="warmthOut">0</span>
         </div>
-        <input type="range" id="warmth" min="-50" max="50" value="0" class="c-slider warm-accent" aria-label="Kehangatan">
+        <input type="range" id="warmth" min="-50" max="50" value="0" class="c-slider warm-accent" aria-label="Suhu">
       </div>
     </div>
 
-    <!-- 3. Pengaturan Format & Resolusi (Collapsible Ringkas) -->
+    <!-- 3. Format Ekspor -->
     <details class="compact-details">
       <summary class="details-summary">
-        <span>⚙️ Format &amp; Resolusi Simpan</span>
+        <span>⚙️ Opsi Ekspor</span>
         <span class="details-arrow">▾</span>
       </summary>
       <div class="details-content">
         <div class="cfg-row">
-          <label for="outSize">Resolusi:</label>
+          <label for="outSize">Resolusi</label>
           <select id="outSize" class="c-select">
-            <option value="original" selected>Asli (Maksimal)</option>
+            <option value="original" selected>Asli</option>
             <option value="1080p">1080p Full HD</option>
             <option value="4k">4K Ultra HD</option>
             <option value="720p">720p HD</option>
           </select>
         </div>
         <div class="cfg-row">
-          <label for="quality">Kualitas:</label>
+          <label for="quality">Kualitas</label>
           <select id="quality" class="c-select">
             <option value="high" selected>Tinggi</option>
             <option value="medium">Sedang</option>
           </select>
         </div>
         <div class="cfg-row">
-          <label for="outCodec">Codec Video:</label>
+          <label for="outCodec">Format</label>
           <select id="outCodec" class="c-select">
             <option value="avc" selected>MP4 (H.264)</option>
             <option value="hevc">MP4 (H.265)</option>
           </select>
         </div>
         <div class="cfg-row chk-row">
-          <label for="denoise">Denoise (Marine snow)</label>
+          <label for="denoise">Denoise</label>
           <input type="checkbox" id="denoise">
         </div>
         <select id="smoothing" style="display:none;"><option value="5">5</option></select>
@@ -236,19 +234,18 @@ if ('caches' in window) {
       </div>
     </details>
 
-    <!-- 4. Tombol Utama Mulai Koreksi & Simpan -->
+    <!-- 4. Tombol Simpan -->
     <div class="panel-action-box">
       <button type="button" class="btn-action-primary" id="startBtn">
-        ⚡ Simpan Hasil Koreksi
+        ⚡ Simpan Hasil
       </button>
       <button type="button" class="btn-action-secondary" id="cancelBtn" style="display:none;">
         Batal
       </button>
     </div>
 
-    <!-- Credit Footer Developer -->
     <div class="panel-credit">
-      <span>freeColors Underwater · Dev: <b>Yoyo R Himam</b></span>
+      <span>freeColors · Yoyo R Himam</span>
     </div>
 
     <!-- Hidden compatibility elements required by cc-app.js -->
@@ -260,17 +257,17 @@ if ('caches' in window) {
     <div id="follow" hidden style="display:none;"></div>
   </aside>
 
-  <!-- Section Progress & Modal Download (Mengambang / Pop-up Saat Pemrosesan) -->
+  <!-- Modal Hasil & Download Ringkas -->
   <div class="modal-results-backdrop" id="resultsModal" hidden>
     <div class="modal-results-card">
       <div class="mrc-header">
-        <h3>Hasil Koreksi Siap!</h3>
+        <h3>Hasil Koreksi</h3>
         <button type="button" class="mrc-close" id="closeResultsModal">✕</button>
       </div>
       <div class="batch" id="batch" hidden>
         <div class="batch-top">
-          <div class="batch-eta"><span class="mono">Estimasi</span><b id="bEta">–</b><small id="bEtaNote">mengukur GPU…</small></div>
-          <div class="batch-rank" id="bRank"><span class="rank-ico" id="bRankIco">⚡</span><div><b id="bRankName">GPU Aktif</b><small id="bRankNote">WebGL2</small></div></div>
+          <div class="batch-eta"><span class="mono">Estimasi</span><b id="bEta">–</b><small id="bEtaNote" style="display:none;"></small></div>
+          <div class="batch-rank" id="bRank"><span class="rank-ico" id="bRankIco">⚡</span><div><b id="bRankName">GPU WebGL2</b></div></div>
         </div>
         <div class="batch-track" id="bTrack"></div>
         <div class="batch-stats mono">
@@ -280,13 +277,12 @@ if ('caches' in window) {
       </div>
       <div class="progress" style="margin:0.5rem 0;"><div class="bar" id="progressBar"></div></div>
       <div class="results" id="results" hidden></div>
-      <div class="notice" id="hwNote" hidden></div>
+      <div class="notice" id="hwNote" hidden style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;"></div>
     </div>
   </div>
 
-  <!-- Review nudge hidden -->
   <div class="review-nudge" id="rvNudge" hidden role="status">
-    <div class="rn-text"><b id="rvNudgeTitle">Selesai!</b><span>File siap disimpan.</span></div>
+    <div class="rn-text"><b id="rvNudgeTitle">Selesai!</b></div>
     <button class="rn-close" id="rvNudgeClose" type="button" aria-label="Tutup">✕</button>
     <button id="rvNudgeGo" type="button" style="display:none;"></button>
   </div>
@@ -302,7 +298,6 @@ if ('caches' in window) {
 
   <section class="unsupported" id="unsupported" hidden>
     <h2>Browser Belum Mendukung WebGL2</h2>
-    <p>Silakan gunakan browser Google Chrome atau buka lewat aplikasi Android freeColors Underwater.</p>
   </section>
 </main>
 
@@ -313,13 +308,11 @@ if ('caches' in window) {
 <script src="/cc-app.js"></script>
 <script src="/cc-compare.js" defer></script>
 
-<!-- Skrip Integrasi Studio Compact -->
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // 1. Sinkronisasi Scene Pills dengan <select id="scene">
+  // 1. Scene Pills
   const scenePills = document.querySelectorAll('.scene-pill');
   const sceneSelect = document.getElementById('scene');
-  
   scenePills.forEach(pill => {
     pill.addEventListener('click', () => {
       scenePills.forEach(p => p.classList.remove('active'));
@@ -330,16 +323,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
-
   if (sceneSelect) {
     sceneSelect.addEventListener('change', () => {
-      scenePills.forEach(p => {
-        p.classList.toggle('active', p.dataset.val === sceneSelect.value);
-      });
+      scenePills.forEach(p => p.classList.toggle('active', p.dataset.val === sceneSelect.value));
     });
   }
 
-  // 2. Tombol Reset Slider ke Nilai Awal
+  // 2. Reset Sliders
   const resetBtn = document.getElementById('resetSlidersBtn');
   if (resetBtn) {
     resetBtn.addEventListener('click', () => {
@@ -354,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 3. Tombol Toggle Perbandingan 50/50 vs Lihat Hasil vs Lihat Asli
+  // 3. Toggle Bandingkan
   const toggleBtn = document.getElementById('toggleCompareBtn');
   if (toggleBtn) {
     let mode = 0;
@@ -369,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 4. Klik Kanvas Kosong untuk Membuka File Picker
+  // 4. Klik Kanvas Kosong
   const pvEmpty = document.getElementById('pvEmpty');
   if (pvEmpty) {
     pvEmpty.addEventListener('click', () => {
@@ -378,19 +368,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 5. Tampilkan Modal Hasil Ketika Pemrosesan Selesai / Sedang Berjalan
+  // 5. Modal Hasil
   const resultsContainer = document.getElementById('results');
   const batchContainer = document.getElementById('batch');
   const resultsModal = document.getElementById('resultsModal');
   const closeResultsModal = document.getElementById('closeResultsModal');
 
   if (closeResultsModal && resultsModal) {
-    closeResultsModal.addEventListener('click', () => {
-      resultsModal.hidden = true;
-    });
+    closeResultsModal.addEventListener('click', () => { resultsModal.hidden = true; });
   }
 
-  // Monitor status pemrosesan untuk memunculkan modal hasil otomatis
   const observer = new MutationObserver(() => {
     if (!resultsContainer.hidden || !batchContainer.hidden) {
       resultsModal.hidden = false;
@@ -399,7 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (resultsContainer) observer.observe(resultsContainer, { attributes: true, attributeFilter: ['hidden'] });
   if (batchContainer) observer.observe(batchContainer, { attributes: true, attributeFilter: ['hidden'] });
 
-  // 6. Bingkai Presisi: Menjaga rasio dan batas foto (landscape & portrait) agar tidak membesar/meluap
+  // 6. Bingkai Presisi: Menjaga rasio dan batas foto
   function fitCmpFrame() {
     const cmp = document.getElementById('cmp');
     const box = document.querySelector('.canvas-viewport-box');
@@ -426,9 +413,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   window.addEventListener('resize', fitCmpFrame);
-  if (boxEl = document.querySelector('.canvas-viewport-box')) {
-    if (window.ResizeObserver) new ResizeObserver(fitCmpFrame).observe(boxEl);
-  }
+  const boxEl = document.querySelector('.canvas-viewport-box');
+  if (boxEl && window.ResizeObserver) new ResizeObserver(fitCmpFrame).observe(boxEl);
   const cmpEl = document.getElementById('cmp');
   if (cmpEl) {
     let lastRatio = '';

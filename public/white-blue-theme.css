@@ -109,12 +109,16 @@ html, body.app-compact-body {
 .header-status-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: 5px;
+  font-size: 0.74rem;
   color: var(--text-muted);
   background: var(--bg-subtle);
   padding: 3px 8px;
   border-radius: 6px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .btn-top-save {

@@ -868,27 +868,35 @@ function hevcLevels(W, H, fps) {
 // 'quantizer': no bitrate at all – a fixed quality (QP per frame) for hardware encoders that ignore the bitrate they are
 // asked for (Robert: NVIDIA through Chrome on Windows delivered 34.6 Mbit/s whatever was requested, 10.7 for H.264).
 async function pickEncoder(W, H, fps, bitrate, pref = 'avc', mode = 'variable', latency = 'quality') {
+  W = Math.max(2, Math.floor(W / 2) * 2);
+  H = Math.max(2, Math.floor(H / 2) * 2);
   const qp = mode === 'quantizer';
   const base = { width: W, height: H, ...(qp ? {} : { bitrate: Math.round(bitrate) }), bitrateMode: mode, framerate: Math.round(fps * 100) / 100, latencyMode: latency, alpha: 'discard' };
-  const avc = W * H <= 3840 * 2176 ? [{ codec: 'avc1.640034', avc: { format: 'avc' }, mux: 'avc' }, { codec: 'avc1.640033', avc: { format: 'avc' }, mux: 'avc' }] : [];
-  // above 40 Mbit/s HEVC Main needs the High tier (H) by the spec; encoders that do not offer it fall back to Main
+  const avcCodecs = [
+    'avc1.4d002a', // Main Level 4.2 (Universal Android hardware support)
+    'avc1.42002a', // Baseline Level 4.2
+    'avc1.64002a', // High Level 4.2
+    'avc1.4d001f', // Main Level 3.1
+    'avc1.42001e', // Baseline Level 3.0
+    'avc1.640034', // High Level 5.2
+    'avc1.640033', // High Level 5.1
+  ];
+  const avc = avcCodecs.map(codec => ({ codec, avc: { format: 'avc' }, mux: 'avc' }));
   const lv = hevcLevels(W, H, fps), tier = !qp && bitrate > 40e6 ? ['H', 'L'] : ['L'];
   const hevc = [];
   for (const t of tier) for (const l of lv) hevc.push(`hev1.1.6.${t}${l}.B0`);
   if (lv.length) hevc.push(`hvc1.1.6.L${lv[0]}.B0`);
   const cands = [...(pref === 'hevc' ? [] : avc), ...hevc.map(codec => ({ codec, hevc: { format: 'hevc' }, mux: 'hevc' })), ...(pref === 'hevc' ? avc : [])];
-  for (const hw of ['prefer-hardware', 'no-preference']) {
+  for (const hw of ['prefer-hardware', 'no-preference', 'prefer-software']) {
     for (const c of cands) {
       const cfg = { ...base, codec: c.codec, hardwareAcceleration: hw, ...(c.avc ? { avc: c.avc } : {}), ...(c.hevc ? { hevc: c.hevc } : {}) };
       const label = (c.mux === 'avc' ? 'H.264' : 'HEVC') + (hw === 'prefer-hardware' ? '' : ' (software)');
       try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return { cfg, mux: c.mux, label }; } catch (_) { }
-      // Windows (Media Foundation) reports HEVC above 1080p as "30 fps at most", although the GPU encodes 4K60 fine: without
-      // the framerate hint the same config is accepted, and the frame timestamps set the real rate (Robert, RTX 2060).
-      if (c.mux === 'hevc' && fps > 31) { const { framerate, ...nofr } = cfg; try { if ((await VideoEncoder.isConfigSupported(nofr)).supported) return { cfg: nofr, mux: c.mux, label }; } catch (_) { } }
+      if (fps > 31) { const { framerate, ...nofr } = cfg; try { if ((await VideoEncoder.isConfigSupported(nofr)).supported) return { cfg: nofr, mux: c.mux, label }; } catch (_) { } }
     }
   }
   if (mode !== 'variable') return pickEncoder(W, H, fps, bitrate, pref, 'variable', latency);
-  throw new Error('Your browser has no supported video encoder for this resolution.');
+  throw new Error('Resolusi video melebihi batas hardware perangkat.');
 }
 // Fixed-quality value for the output-quality setting (QP 0–51, lower = better): Maximum 14, High 19, Standard 24, Small 28.
 const qpFor = quality => Math.round(14 + (1 - Math.min(1, Math.max(0, quality))) * 19);
@@ -1643,14 +1651,29 @@ async function processItemOnce(item, base, onProgress) {
   const cap = base.outSize || 0;
   if (cap && W > cap) { oW = cap; oH = Math.round(H * cap / W / 2) * 2; bitrate = Math.round(bitrate * (oW * oH) / (W * H)); item.downscaled = `${oW}×${oH}`; }
   try { enc = await pickEncoder(oW, oH, fps, bitrate, base.outCodec, encMode, encRealtime ? 'realtime' : 'quality'); }
-  catch (e) { // no encoder at this size: step down (5.3K -> 4K H.264 -> 1080p) instead of failing
+  catch (e) {
     let ok = false;
-    for (const w of [3840, 1920]) {
-      if (oW <= w) continue;
-      const tw = w, th = Math.round(H * w / W / 2) * 2, tb = Math.round(bitrate * (tw * th) / (oW * oH));
-      try { enc = await pickEncoder(tw, th, fps, tb, base.outCodec, encMode, encRealtime ? 'realtime' : 'quality'); oW = tw; oH = th; bitrate = tb; item.downscaled = `${oW}×${oH}`; log(`encoder: downscaled to ${oW}x${oH}`); ok = true; break; } catch (_) { }
+    const longSide = Math.max(oW, oH);
+    for (const targetLong of [2560, 1920, 1280, 854, 720]) {
+      if (longSide <= targetLong) continue;
+      const scale = targetLong / longSide;
+      const tw = Math.max(2, Math.floor((oW * scale) / 2) * 2);
+      const th = Math.max(2, Math.floor((oH * scale) / 2) * 2);
+      const tb = Math.round(bitrate * (tw * th) / (oW * oH));
+      try {
+        enc = await pickEncoder(tw, th, Math.min(fps, 30), tb, 'avc', encMode, 'quality');
+        oW = tw; oH = th; bitrate = tb; item.downscaled = `${oW}×${oH}`;
+        log(`encoder: downscaled to ${oW}x${oH}`);
+        ok = true; break;
+      } catch (_) { }
     }
-    if (!ok) throw e;
+    if (!ok) {
+      const scale = Math.min(1, 1280 / Math.max(oW, oH));
+      const tw = Math.max(2, Math.floor((oW * scale) / 2) * 2);
+      const th = Math.max(2, Math.floor((oH * scale) / 2) * 2);
+      enc = await pickEncoder(tw, th, Math.min(fps, 30), Math.min(bitrate, 8e6), 'avc', 'variable', 'quality');
+      oW = tw; oH = th; item.downscaled = `${oW}×${oH}`;
+    }
   }
   if (base.outCodec === 'hevc' && enc.mux !== 'hevc' && !hevcEncWarned) { hevcEncWarned = true; ccTrack('hevc_enc_missing', {}); showNotice('<b>This browser reports that it cannot encode HEVC on this computer, so the files are saved as H.264.</b> The quality setting still applies. Whether a browser offers HEVC <i>encoding</i> depends on the browser version as well as the graphics card – if you are on Edge, try Chrome (or the other way round). The <a href="/color-correction/diag" target="_blank">diagnostics page</a> shows exactly what your browser supports.'); }
   if (hevcSave < 1 && enc.mux !== 'hevc') { bitrate = Math.round(bitrate / hevcSave); if (enc.cfg.bitrateMode !== 'quantizer') enc.cfg.bitrate = bitrate; }
@@ -1941,15 +1964,13 @@ function renderResults() {
   const box = $('#results'); if (!box) return;
   const inBatch = batch.items.length ? batch.items : items;
   const done = inBatch.filter(i => i.status === 'done'), failed = inBatch.filter(i => i.status === 'error'), total = inBatch.length;
-  const where = outMode === 'fsa' ? `saved in the folder <b>${esc(dirHandle ? dirHandle.name : 'you chose')}</b>, next to the originals`
-    : outMode === 'stream' ? 'saved in your <b>Downloads</b> folder'
-    : IS_ANDROID ? 'kept here until you tap <b>Download</b> – they then go to your <b>Downloads</b> folder' : IS_MOBILE ? 'kept here until you tap <b>Save</b>' : 'kept here until you click <b>Download</b>';
+  const where = 'siap disimpan ke galeri perangkat';
   const mb = done.reduce((a, i) => a + (i.outBytes || 0), 0), frames = done.reduce((a, i) => a + (i.bFinal || i.bTotal || 0), 0);
   let head, sub;
   if (!live.final) { head = done.length ? `${done.length} of ${total} done – keep going` : `Working on ${countLabel(inBatch)}`; sub = done.length ? `${fmtMB(mb)} written so far · finished files appear below as they complete` : 'Finished files will appear here as soon as each one is done.'; }
   else { head = live.cancelled ? `Stopped – ${done.length} of ${total} done` : failed.length ? `${done.length} of ${total} done` : `All ${countLabel(done)} done`; sub = `${fmtTime(live.secs)} · ${fmtMB(mb)}`; }
   let html = `<div class="rs-head"><span class="rs-ico${live.final ? '' : ' busy'}" aria-hidden="true">${live.final ? (failed.length ? '!' : '✓') : ''}</span><div><b>${head}</b><span>${sub}</span></div></div>`;
-  html += `<p class="rs-where">Corrected files are ${where}.</p>`;
+  html += `<p class="rs-where">File siap disimpan ke Galeri.</p>`;
   if (done.length) {
     const list = done.slice().reverse();
     const gridW = (box.clientWidth || 640) - 40, cols = Math.max(1, Math.floor((gridW + 10) / (150 + 10))), rows = live.final ? 3 : 2;
@@ -1964,11 +1985,11 @@ function renderResults() {
   if (live.final) {
     const btns = [];
     if (done.length) { const saveAllText = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan Semua ke Galeri' : (IS_MOBILE ? 'Simpan Semua' : 'Download Semua'); btns.push(`<button type="button" class="btn btn-glow" id="rsSaveAll">${saveAllText} (${done.length})</button>`); }
-    btns.push(`<button type="button" class="btn btn-ghost" id="rsMore">Correct more</button>`);
+    btns.push(`<button type="button" class="btn btn-ghost" id="rsMore">Buka File Lain</button>`);
     
     html += `<div class="rs-btns">${btns.join('')}</div>`;
   }
-  if (failed.length) html += `<div class="rs-failed"><b>Not processed:</b><ul>${failed.map(i => `<li><span class="fname">${esc(i.file.name)}</span> – ${esc(i.result || 'error')}</li>`).join('')}</ul><span>Tell me about it: <a href="mailto:jonas@jjsap.com?subject=${encodeURIComponent((TENANT ? TENANT.host : 'dive.nordrift.dk') + ' error')}&body=${encodeURIComponent(failed.map(i => i.file.name + ': ' + (i.result || '')).join('\n') + '\n\n' + navigator.userAgent)}">send the error</a> or run the <a href="/color-correction/diag" target="_blank">browser check</a>.</span></div>`;
+  if (failed.length) html += `<div class="rs-failed"><b>Kendala:</b><ul>${failed.map(i => `<li><span class="fname">${esc(i.file.name)}</span> – ${esc(i.result || 'error')}</li>`).join('')}</ul></div>`;
   box.innerHTML = html; box.hidden = false;
   box.querySelectorAll('[data-play]').forEach(b => b.addEventListener('click', () => playResult(items[+b.dataset.play], b)));
   box.querySelectorAll('[data-save]').forEach(b => b.addEventListener('click', () => saveOut(items[+b.dataset.save])));
