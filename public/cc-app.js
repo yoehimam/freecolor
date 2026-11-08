@@ -41,7 +41,7 @@ const ANDROID_ACCEPT = 'video/*,image/*'; // the picker's type filter on Android
 const IS_MOBILE = IS_ANDROID || /iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 // Phones/tablets: iOS saves through the share sheet ("Save Video"); Android's share sheet often has no "save to device",
 // so Android downloads to the Downloads folder (visible in Files and Gallery).
-const SAVE_LABEL = (typeof window !== 'undefined' && (window.Capacitor?.isNativePlatform?.() || IS_ANDROID)) ? 'Simpan ke Galeri' : (IS_MOBILE ? 'Save' : 'Download');
+const SAVE_LABEL = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan ke Galeri' : (IS_MOBILE ? 'Download / Simpan' : 'Download');
 const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 const support = {
   codecs: typeof VideoDecoder !== 'undefined' && typeof VideoEncoder !== 'undefined',
@@ -55,13 +55,11 @@ const OUT_OVERRIDE = DEV ? new URLSearchParams(location.search).get('out') : nul
 support.stream = 'serviceWorker' in navigator && typeof ReadableStream !== 'undefined' && location.protocol === 'https:' || (DEV && 'serviceWorker' in navigator);
 // Desktop with folder access -> write into the chosen folder. Desktop WITHOUT it (Brave, Firefox, locked-down Chrome) -> stream each
 // finished file straight into the browser's download (no storage quota). Phones -> browser storage + Save/Share.
-let outMode = OUT_OVERRIDE || (support.fs && !IS_MOBILE ? 'fsa' : (!IS_MOBILE && support.stream) ? 'stream' : support.opfs ? 'opfs' : 'none');
+let outMode = OUT_OVERRIDE || (support.opfs ? 'opfs' : 'memory');
 if (!support.gl) {
   $('#unsupported').hidden = false; $('#app').hidden = true; return;
 }
-if (outMode === 'none') {
-  outMode = support.opfs ? 'opfs' : 'memory';
-}
+outMode = OUT_OVERRIDE || (support.opfs ? 'opfs' : 'memory');
 
 // Count this browser once as a user (a flag only – no id, no cookie). Waits for the tenant lookup so the event carries the host.
 tenantReady.then(() => { try { if (!localStorage.getItem('cc-counted')) { localStorage.setItem('cc-counted', '1'); ccStat('user'); } } catch (_) { } });
@@ -980,14 +978,17 @@ async function withExif(jpeg, tiff) {
 const JPEG_Q = { 1: 0.95, 0.75: 0.93, 0.45: 0.9, 0.25: 0.8 };
 async function writePhoto(item, name, blob) {
   item.outName = name;
-  if (outMode === 'fsa' && devClip) { await fetch('/out/' + name, { method: 'PUT', body: blob }); item.outFile = new File([blob], name, { type: 'image/jpeg' }); return blob.size; }
-  if (outMode === 'fsa') { const fh = await dirHandle.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); item.outHandle = fh; return blob.size; }
-  if (outMode === 'stream') { // straight into Downloads, like the streamed videos
-    const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-    item.streamed = true; item.viewFile = new File([blob], name, { type: 'image/jpeg' }); return blob.size;
+  item.outFile = new File([blob], name, { type: 'image/jpeg' });
+  if (dirHandle) {
+    try {
+      const fh = await dirHandle.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob);
+      await w.close();
+      item.outHandle = fh;
+    } catch (_) {}
   }
-  try { const d = await opfsDir(), fh = await d.getFileHandle(name, { create: true }); if (fh.createWritable) { const w = await fh.createWritable(); await w.write(blob); await w.close(); item.outFile = await fh.getFile(); return blob.size; } } catch (_) { }
-  item.outFile = new File([blob], name, { type: 'image/jpeg' }); return blob.size;
+  return blob.size;
 }
 async function processPhoto(item, base, onProgress) {
   let bmp; try { bmp = await decodeImage(item.file); } catch (e) { throw stepErr('read photo', e); }
@@ -1287,19 +1288,34 @@ function outBase(item) {
 async function makeTarget(item) {
   const name = outBase(item) + '_corrected.mp4';
   item.outName = name;
-  if (outMode === 'stream') return makeStreamTarget(item, name);
-  if (outMode === 'memory') return makeMemoryTarget(item, name, null); if (outMode !== 'fsa') { try { return await makeOpfsTarget(item, name); } catch (e) { return makeMemoryTarget(item, name, e); } }
-  if (devClip) {
-    const t = new Mp4Muxer.ArrayBufferTarget();
-    return { name, target: t, finish: async () => { await fetch('/out/' + name, { method: 'PUT', body: t.buffer }); item.outFile = new File([t.buffer], name, { type: 'video/mp4' }); return t.buffer.byteLength; }, abort: async () => { } };
+  if (dirHandle) {
+    try {
+      const fh = await dirHandle.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      const ws = watchStream(w);
+      const t = new Mp4Muxer.FileSystemWritableFileStreamTarget(w, { chunkSize: 8 * 1024 * 1024 });
+      return {
+        name,
+        target: t,
+        finish: async () => {
+          await ws.finish(() => w.close());
+          item.outHandle = fh;
+          item.outFile = await fh.getFile();
+          return item.outFile.size;
+        },
+        abort: async () => { try { await w.abort(); } catch (_) {} try { await dirHandle.removeEntry(name); } catch (_) {} }
+      };
+    } catch (_) {}
   }
-  const fh = await dirHandle.getFileHandle(name, { create: true }); const w = await fh.createWritable(); const ws = watchStream(w);
-  const t = new Mp4Muxer.FileSystemWritableFileStreamTarget(w, { chunkSize: 8 * 1024 * 1024 });
-  return { name, target: t, finish: async () => { await ws.finish(() => w.close()); item.outHandle = fh; return (await fh.getFile()).size; }, abort: async () => { try { await w.abort(); } catch (_) { } try { await dirHandle.removeEntry(name); } catch (_) { } } };
+  if (support.opfs) {
+    try {
+      return await makeOpfsTarget(item, name);
+    } catch (e) {
+      return makeMemoryTarget(item, name, e);
+    }
+  }
+  return makeMemoryTarget(item, name, null);
 }
-
-// A writable stream that errors mid-batch (disk full, storage quota, file locked) otherwise surfaces as
-// "cannot close an ERRORED writable stream" on close. Watch it and report the real cause instead.
 function watchStream(w) {
   const st = { err: null };
   if (DEV && new URLSearchParams(location.search).has('failwrite') && w && w.abort) setTimeout(() => { const e = new DOMException('The quota has been exceeded.', 'QuotaExceededError'); st.err = e; try { w.abort(e); } catch (_) { } }, 1500);
@@ -1434,37 +1450,87 @@ function makeMemoryTarget(item, name, cause) {
 
 // Hand a finished file to the user: share sheet on phones (iOS: "Save Video"), download elsewhere.
 async function saveOut(item) {
-  const f = item.outFile || item.viewFile; if (!f) return;
-  const filename = item.outName || f.name;
+  let f = item.outFile || item.viewFile;
+  if (!f && item.outHandle && typeof item.outHandle.getFile === 'function') {
+    try { f = await item.outHandle.getFile(); } catch (_) {}
+  }
+  if (!f) {
+    showNotice('<b>File belum siap.</b> Tunggu proses selesai.');
+    return;
+  }
+  const filename = item.outName || f.name || ('FreeColor_' + Date.now() + (item.photo ? '.jpg' : '.mp4'));
 
+  // 1. Android Capacitor Native Platform:
   if (typeof window !== 'undefined' && window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
     try {
-      const reader = new FileReader();
-      const base64Promise = new Promise((resolve, reject) => {
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-      });
-      reader.readAsDataURL(f);
-      const base64Data = await base64Promise;
+      setStatus(`Menyimpan ${filename} ke galeri...`, 'busy');
       const { FreeColorGallery } = window.Capacitor.Plugins || {};
-      if (FreeColorGallery && FreeColorGallery.saveImageToGallery) {
-        await FreeColorGallery.saveImageToGallery({
-          base64: base64Data,
-          filename: filename
-        });
-        showNotice(`<b>Tersimpan di Galeri!</b> ${esc(filename)} berhasil disimpan di album FreeColor.`);
-        return;
+      if (FreeColorGallery) {
+        const size = f.size || 0;
+        // For files <= 10MB: direct base64
+        if (size <= 10 * 1024 * 1024) {
+          const reader = new FileReader();
+          const base64Data = await new Promise((res, rej) => {
+            reader.onload = () => res(reader.result);
+            reader.onerror = rej;
+            reader.readAsDataURL(f);
+          });
+          const res = await FreeColorGallery.saveImageToGallery({
+            base64: base64Data,
+            filename: filename
+          });
+          const album = res?.album || 'Galeri';
+          showNotice(`<b>✓ Berhasil Disimpan!</b><br>${esc(filename)} tersimpan di album ${album}.`);
+          setStatus(`Tersimpan di ${album}: ${filename}`);
+          return;
+        } else {
+          // For larger files: chunked streaming (2MB slices)
+          const chunkSize = 2 * 1024 * 1024;
+          const totalChunks = Math.ceil(size / chunkSize);
+          const sessionId = 'fc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+          for (let c = 0; c < totalChunks; c++) {
+            const start = c * chunkSize;
+            const end = Math.min(size, start + chunkSize);
+            const sliceBlob = f.slice(start, end);
+            const reader = new FileReader();
+            const chunkBase64 = await new Promise((res, rej) => {
+              reader.onload = () => res(reader.result.split(',')[1] || reader.result);
+              reader.onerror = rej;
+              reader.readAsDataURL(sliceBlob);
+            });
+            await FreeColorGallery.writeMediaChunk({
+              sessionId,
+              chunk: chunkBase64,
+              filename,
+              isFirst: c === 0,
+              isLast: c === totalChunks - 1
+            });
+            setStatus(`Menyimpan video (${Math.round((c + 1) / totalChunks * 100)}%)...`, 'busy');
+          }
+          showNotice(`<b>✓ Video Berhasil Disimpan!</b><br>${esc(filename)} tersimpan di album Movies/FreeColor.`);
+          setStatus(`Video tersimpan di Galeri: ${filename}`);
+          return;
+        }
       }
     } catch (err) {
-      console.warn('Native gallery save failed, falling back to download:', err);
+      console.warn('Native save failed, falling back to browser download:', err);
+      showNotice(`<b>Peringatan:</b> Simpan galeri otomatis gagal (${esc(err.message)}), mencoba unduhan langsung.`);
     }
   }
 
-  const file = new File([f], filename, { type: /\.jpe?g$/i.test(filename) ? 'image/jpeg' : 'video/mp4' });
+  // 2. Share sheet on iOS Safari mobile:
+  const isVideo = /\.(mp4|mov|m4v)$/i.test(filename);
+  const file = new File([f], filename, { type: isVideo ? 'video/mp4' : 'image/jpeg' });
   if (IS_MOBILE && !IS_ANDROID && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: file.name }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    try {
+      await navigator.share({ files: [file], title: file.name });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
   }
 
+  // 3. Universal Web Browser Download (Desktop & Mobile Browser):
   const url = URL.createObjectURL(f);
   const a = document.createElement('a');
   a.href = url;
@@ -1473,6 +1539,7 @@ async function saveOut(item) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+  setStatus(`Unduhan dimulai: ${filename}`);
 }
 // Some hardware encoders (seen with AMD + Edge on Windows) do not honour high variable bitrates and deliver a fraction
 // of what was asked for. The first 3 seconds are measured; if the encoder is far below target, the file is started
@@ -1886,7 +1953,7 @@ function renderResults() {
     const gridW = (box.clientWidth || 640) - 40, cols = Math.max(1, Math.floor((gridW + 10) / (150 + 10))), rows = live.final ? 3 : 2;
     const shown = live.showAll ? list : list.slice(0, cols * rows);
     html += `<div class="rs-grid${live.showAll ? ' all' : ''}">${shown.map(i => {
-      const idx = items.indexOf(i), canPlay = !!(i.outFile || i.outHandle || i.viewFile), canSave = !!i.outFile && outMode !== 'fsa';
+      const idx = items.indexOf(i), canPlay = !!(i.outFile || i.outHandle || i.viewFile), canSave = !!(i.outFile || i.outHandle || i.viewFile);
       return `<div class="rs-card">${i.thumb ? `<button type="button" class="rs-thumb" data-play="${idx}" ${canPlay ? '' : 'disabled'} aria-label="Play ${esc(i.outName || '')}"><img src="${i.thumb}" alt="">${canPlay ? `<span class="play">${isPhoto(i) ? '⤢' : '▶'}</span>` : ''}</button>` : `<div class="rs-thumb empty"></div>`}
         <div class="rs-meta"><span class="fname" title="${esc(i.outName || i.file.name)}">${esc(i.outName || i.file.name)}</span><span>${i.outBytes ? fmtMB(i.outBytes) : ''}${i.detected && PRESETS[i.detected] ? ' · ' + PRESETS[i.detected].label : ''}${i.streamed ? ' · in Downloads' : ''}</span></div>
         ${canSave ? `<button type="button" class="rs-save" data-save="${idx}">${SAVE_LABEL}</button>` : ''}</div>`;
@@ -1894,7 +1961,7 @@ function renderResults() {
   }
   if (live.final) {
     const btns = [];
-    if (outMode !== 'fsa' && outMode !== 'stream' && done.some(i => i.outFile)) btns.push(`<button type="button" class="btn btn-glow" id="rsSaveAll">${IS_MOBILE ? 'Save all' : 'Download all'} (${done.filter(i => i.outFile).length})</button>`);
+    if (done.length) { const saveAllText = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan Semua ke Galeri' : (IS_MOBILE ? 'Simpan Semua' : 'Download Semua'); btns.push(`<button type="button" class="btn btn-glow" id="rsSaveAll">${saveAllText} (${done.length})</button>`); }
     btns.push(`<button type="button" class="btn btn-ghost" id="rsMore">Correct more</button>`);
     if (!wmOn) btns.push(`<a class="btn btn-sun" data-donate href="${window.CC_DONATE_URL || '/color-correction#donate'}" target="_blank" rel="noopener">♥ Support the tool</a>`);
     html += `<div class="rs-btns">${btns.join('')}</div>`;
@@ -1974,12 +2041,7 @@ async function startInner() {
   await copying; await wmReady;
   if (!items.some(i => i.status === 'queued' || i.status === 'error' || i.status === 'cancelled')) { if (!items.length) ui.fileInput.click(); else setStatus('Everything in the queue is already processed.'); return; }
   if (quotaBlocks(items.filter(i => (i.status === 'queued' || i.status === 'error' || i.status === 'cancelled') && !isPhoto(i)).length)) { setStatus(`The ${quota.limit} videos of this subscription year are used – photos still work. Write to jonas@jjsap.com for more.`, 'error'); return; }
-  if (outMode === 'fsa' && !dirHandle && !devClip) {
-    try { await pickDir(); } catch (_) {
-      outMode = support.opfs ? 'opfs' : 'memory';
-      ui.outDirName.textContent = 'Simpan langsung ke Download / Galeri aktif.';
-    }
-  }
+  // Seamless start: folder selection is 100% optional
   if (outMode !== 'fsa') { for (const it of items) if (it.status !== 'done') it.outFile = null; await opfsClear(); }
   let wake = null; try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (_) { }
   await previewPromise; if (running) return;

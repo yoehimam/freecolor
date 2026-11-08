@@ -17,9 +17,25 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 @CapacitorPlugin(name = "FreeColorGallery")
 public class FreeColorGalleryPlugin extends Plugin {
+
+    private static class SessionData {
+        OutputStream fos;
+        Uri mediaUri;
+        File savedFile;
+        boolean savedViaMediaStore;
+        String mimeType;
+        String filename;
+        boolean isVideo;
+        long nowSec;
+        long totalBytes;
+    }
+
+    private final Map<String, SessionData> activeSessions = new HashMap<>();
 
     @PluginMethod
     public void saveImageToGallery(PluginCall call) {
@@ -150,6 +166,143 @@ public class FreeColorGalleryPlugin extends Plugin {
 
         } catch (Exception e) {
             call.reject("Gagal menyimpan ke galeri HP: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void writeMediaChunk(PluginCall call) {
+        String sessionId = call.getString("sessionId");
+        String chunk = call.getString("chunk");
+        String filename = call.getString("filename", "FreeColor_" + System.currentTimeMillis() + ".mp4");
+        boolean isFirst = call.getBoolean("isFirst", false);
+        boolean isLast = call.getBoolean("isLast", false);
+
+        if (sessionId == null || sessionId.trim().isEmpty()) {
+            call.reject("sessionId wajib diisi");
+            return;
+        }
+
+        try {
+            SessionData session = activeSessions.get(sessionId);
+            if (isFirst || session == null) {
+                if (session != null && session.fos != null) {
+                    try { session.fos.close(); } catch (Throwable ignored) {}
+                }
+                session = new SessionData();
+                session.filename = filename;
+                String lower = filename.toLowerCase();
+                session.isVideo = lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".m4v");
+                boolean isWebP = lower.endsWith(".webp");
+                boolean isPng = lower.endsWith(".png");
+                session.mimeType = session.isVideo ? "video/mp4" : (isWebP ? "image/webp" : (isPng ? "image/png" : "image/jpeg"));
+                String relativeDir = session.isVideo ? (Environment.DIRECTORY_MOVIES + File.separator + "FreeColor") : (Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
+
+                long nowMs = System.currentTimeMillis();
+                session.nowSec = nowMs / 1000;
+                session.totalBytes = 0;
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        ContentResolver resolver = getContext().getContentResolver();
+                        ContentValues contentValues = new ContentValues();
+                        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, session.mimeType);
+                        contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir);
+                        contentValues.put(MediaStore.MediaColumns.DATE_ADDED, session.nowSec);
+                        contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, session.nowSec);
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+                        Uri collection = session.isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                        if (!session.isVideo) {
+                            contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+                        }
+
+                        session.mediaUri = resolver.insert(collection, contentValues);
+                        if (session.mediaUri != null) {
+                            session.fos = resolver.openOutputStream(session.mediaUri);
+                            session.savedViaMediaStore = true;
+                        }
+                    } catch (Exception ignored) {
+                        session.savedViaMediaStore = false;
+                    }
+                }
+
+                if (!session.savedViaMediaStore) {
+                    File targetDir = session.isVideo ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                    File freeColorDir = new File(targetDir, "FreeColor");
+                    if (!freeColorDir.exists()) {
+                        freeColorDir.mkdirs();
+                    }
+                    session.savedFile = new File(freeColorDir, filename);
+                    session.fos = new FileOutputStream(session.savedFile);
+                }
+
+                activeSessions.put(sessionId, session);
+            }
+
+            if (chunk != null && !chunk.isEmpty()) {
+                if (chunk.contains(",")) {
+                    chunk = chunk.substring(chunk.indexOf(",") + 1);
+                }
+                byte[] decoded = Base64.decode(chunk, Base64.DEFAULT);
+                if (decoded != null && decoded.length > 0 && session.fos != null) {
+                    session.fos.write(decoded);
+                    session.totalBytes += decoded.length;
+                }
+            }
+
+            if (isLast) {
+                if (session.fos != null) {
+                    session.fos.flush();
+                    session.fos.close();
+                    session.fos = null;
+                }
+
+                if (session.savedViaMediaStore && session.mediaUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        ContentResolver resolver = getContext().getContentResolver();
+                        ContentValues contentValues = new ContentValues();
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                        resolver.update(session.mediaUri, contentValues, null, null);
+                        resolver.notifyChange(session.mediaUri, null);
+
+                        Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, session.mediaUri);
+                        getContext().sendBroadcast(scanIntent);
+                    } catch (Throwable ignored) {}
+                } else if (session.savedFile != null) {
+                    MediaScannerConnection.scanFile(
+                        getContext(),
+                        new String[]{session.savedFile.getAbsolutePath()},
+                        new String[]{session.mimeType},
+                        null
+                    );
+                    try {
+                        Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+                        scanIntent.setData(Uri.fromFile(session.savedFile));
+                        getContext().sendBroadcast(scanIntent);
+                    } catch (Throwable ignored) {}
+                }
+
+                activeSessions.remove(sessionId);
+
+                JSObject result = new JSObject();
+                result.put("success", true);
+                result.put("filename", filename);
+                result.put("album", session.isVideo ? "Movies/FreeColor" : "Pictures/FreeColor");
+                result.put("sizeBytes", session.totalBytes);
+                result.put("message", "Tersimpan di Galeri album 'FreeColor'!");
+                call.resolve(result);
+                return;
+            }
+
+            JSObject progress = new JSObject();
+            progress.put("success", true);
+            progress.put("receivedBytes", session.totalBytes);
+            call.resolve(progress);
+
+        } catch (Exception e) {
+            activeSessions.remove(sessionId);
+            call.reject("Gagal menulis chunk ke galeri: " + e.getMessage());
         }
     }
 }
