@@ -41,7 +41,7 @@ const ANDROID_ACCEPT = 'video/*,image/*'; // the picker's type filter on Android
 const IS_MOBILE = IS_ANDROID || /iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 // Phones/tablets: iOS saves through the share sheet ("Save Video"); Android's share sheet often has no "save to device",
 // so Android downloads to the Downloads folder (visible in Files and Gallery).
-const SAVE_LABEL = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan ke Galeri' : (IS_MOBILE ? 'Download / Simpan' : 'Download');
+const SAVE_LABEL = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan ke Galeri' : (IS_MOBILE ? 'Simpan' : 'Download');
 const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 const support = {
   codecs: typeof VideoDecoder !== 'undefined' && typeof VideoEncoder !== 'undefined',
@@ -101,12 +101,12 @@ if (SELFTEST) { const n = document.createElement('div'); n.className = 'notice';
 // minSpan: minimum percentile span kept after the stretch (caps contrast gain on hazy footage);
 // satCap: max increase of mean saturation vs. the source (0 = off).
 const PRESETS = {
-  deep:  { label: 'Deep blue',      strength: 0.5, blue: 0, window: 30, every: 3, alphaRed: 0.4,  pct: [0.01, 0.99],   capR: 1.25, floorB: 0.9, minSpan: 0.45, satCap: 0, sat: 1 },
-  blue:  { label: 'Blue water',     strength: 0.9, blue: 0, window: 30, every: 3, alphaRed: 0.85, pct: [0.01, 0.99],   capR: 1.8,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  reef:  { label: 'Reef',           strength: 1.0, blue: 0, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  macro: { label: 'Close-up',       strength: 0.9, blue: 0, window: 8,  every: 2, alphaRed: 0.85, pct: [0.003, 0.997], capR: 2.2,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  green: { label: 'Green water',    strength: 1.0, blue: 1, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  hazy:  { label: 'Shallow / hazy', strength: 0.7, blue: 0, window: 20, every: 3, alphaRed: 0.6,  pct: [0.01, 0.99],   capR: 1.6,  floorB: 0,   minSpan: 0.5,  satCap: 1.4 },
+  deep:  { label: 'Laut Dalam',      strength: 0.5, blue: 0, window: 30, every: 3, alphaRed: 0.4,  pct: [0.01, 0.99],   capR: 1.25, floorB: 0.9, minSpan: 0.45, satCap: 0, sat: 1 },
+  blue:  { label: 'Air Biru Terbuka',     strength: 0.9, blue: 0, window: 30, every: 3, alphaRed: 0.85, pct: [0.01, 0.99],   capR: 1.8,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
+  reef:  { label: 'Terumbu Karang',           strength: 1.0, blue: 0, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
+  macro: { label: 'Makro / Senter',       strength: 0.9, blue: 0, window: 8,  every: 2, alphaRed: 0.85, pct: [0.003, 0.997], capR: 2.2,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
+  green: { label: 'Air Kehijauan',    strength: 1.0, blue: 1, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
+  hazy:  { label: 'Dangkal / Keruh', strength: 0.7, blue: 0, window: 20, every: 3, alphaRed: 0.6,  pct: [0.01, 0.99],   capR: 1.6,  floorB: 0,   minSpan: 0.5,  satCap: 1.4 },
 };
 PRESETS.blue.waterKeep = 1.6; PRESETS.deep.waterKeep = 1.6;
 if (DEV && new URLSearchParams(location.search).has('wk')) { const v = +new URLSearchParams(location.search).get('wk'); PRESETS.blue.waterKeep = PRESETS.deep.waterKeep = v; } // localhost tuning
@@ -203,7 +203,7 @@ gl.activeTexture(gl.TEXTURE1); const wmTex = mkTex();
 gl.activeTexture(gl.TEXTURE0); const tex = mkTex();
 // Watermark: "dive.nordrift.dk" rendered once per output size into a small texture and
 // alpha-blended by the shader in the bottom-right corner of every frame.
-const WM_URL = 'freecolor.app', WM_TAG = 'FREECOLOR'; let WM_SCALE = 0.65, wmKey = '';
+const WM_URL = 'freecolors.app', WM_TAG = 'freeColors Underwater · Yoyo R Himam'; let WM_SCALE = 0.65, wmKey = '';
 // Glassy badge: small mono tagline over the bold link, on a translucent rounded panel.
 // The watermark artwork (Logo/Watermark.svg, rasterised 4× to img/watermark.png – a PNG because some browsers refuse
 // SVGs with embedded images in WebGL). 420 px × WM_SCALE wide on a 1080p frame (0.65 since 2026-10-13: reviewers found it
@@ -1053,12 +1053,14 @@ function applyPreset(key, detected = false) {
   syncOutputs();
   if (!detected) ui.scene.value = key;
   ui.scene.options[0].textContent = detected ? `Auto (recommended) – detected: ${p.label}` : 'Auto (recommended)';
-  ui.sceneNote.textContent = (detected ? '' : 'Applied to every video in the queue. ') + { hazy: 'Milky, low-contrast water (snorkelling, silt, plankton). Caps the contrast and saturation boost so the bottom stays natural instead of dark and crunchy. In green water it also takes out the green.',
-    deep: 'Almost nothing but water in the frame. Gentle lift only – full correction would turn the blue purple.',
-    blue: 'Softer red compensation and a cap on red gain keep open water blue instead of cyan. Long smoothing for stable wide shots.',
-    reef: 'Full correction with 1/99 percentile contrast. The all-round setting for reef and wreck scenes.',
-    macro: 'Wider percentile range preserves highlights from torches and strobes; short smoothing follows fast subject changes.',
-    green: 'Also compensates blue for lakes, fjords and algae-rich water.' }[key];
+  ui.sceneNote.textContent = (detected ? '' : 'Diterapkan ke semua file di antrean. ') + {
+    hazy: 'Air dangkal berpasir atau keruh (snorkeling, partikel sedimen). Menahan kontras dan saturasi agar warna bawah air tetap alami dan jernih.',
+    deep: 'Sebagian besar bingkai berupa air biru tua/terbuka. Memberikan pengangkatan lembut agar warna biru tidak berubah menjadi ungu.',
+    blue: 'Kompensasi spektrum merah seimbang menjaga air terbuka tetap biru alami, bukan sian/toska. Cocok untuk sudut lebar (wide shot).',
+    reef: 'Koreksi spektrum penuh dengan kontras seimbang. Pilihan utama untuk terumbu karang tropis dan bangkai kapal (wreck).',
+    macro: 'Rentang dinamis optimal melindungi highlight dari sorotan senter / strobe; responsif mengikuti gerakan subjek dekat.',
+    green: 'Kompensasi spektrum biru untuk danau, muara, atau perairan tropis kaya alga hijau.'
+  }[key];
   applying = false;
 }
 // Steps 2 and 3 are collapsible; the closed header shows the current values so nothing is hidden by surprise.
@@ -1066,9 +1068,9 @@ function stepSummaries() {
   const s2 = $('#sum2'), s3 = $('#sum3'); if (!s2 || !s3) return;
   const sc = ui.scene.value, st = +ui.strength.value;
   const nAdj = items.filter(x => x.adj && adjActive(x.adj)).length, gAdj = adjActive(globalAdj);
-  s2.textContent = (sc === 'auto' ? 'Auto – every video gets its own scene' : PRESETS[sc] ? PRESETS[sc].label : 'Auto') + (gAdj ? ' · adjusted for all' : nAdj ? ` · ${nAdj} ${nAdj === 1 ? 'video' : 'videos'} adjusted` : '');
-  const size = { 3840: 'Up to 4K', 0: 'Source size', 1920: '1080p' }[ui.outSize.value] || '', q = { '1': 'Maximum', '0.75': 'High', '0.45': 'Standard', '0.25': 'Small file' }[ui.quality.value] || '';
-  s3.textContent = `${size} · ${ui.outCodec.value === 'hevc' ? 'HEVC · ' : ''}${q} quality · ${ui.warmthOut.textContent}` + (ui.smooth.value !== 'auto' ? ` · smoothing ${ui.smooth.value === '1' ? 'off' : ui.smooth.value}` : '') + (ui.denoise.value !== 'off' ? ` · denoise ${ui.denoise.value}` : '');
+  s2.textContent = (sc === 'auto' ? 'Otomatis – deteksi cerdas sesuai pemandangan' : PRESETS[sc] ? PRESETS[sc].label : 'Otomatis') + (gAdj ? ' · disesuaikan untuk semua' : nAdj ? ` · ${nAdj} file disesuaikan` : '');
+  const size = { 3840: 'Hingga 4K', 0: 'Ukuran Asli', 1920: '1080p' }[ui.outSize.value] || '', q = { '1': 'Kualitas Maksimum', '0.75': 'Tinggi', '0.45': 'Standar', '0.25': 'Ukuran Kecil' }[ui.quality.value] || '';
+  s3.textContent = `${size} · ${ui.outCodec.value === 'hevc' ? 'HEVC · ' : 'H.264 · '}${q} · ${ui.warmthOut.textContent}`;
 }
 for (const id of ['step2', 'step3']) {
   const d = $('#' + id); if (!d) continue;
@@ -1186,7 +1188,7 @@ async function localCopy(f, i, n) {
 if (NEEDS_LOCAL_COPY && support.opfs) (async () => { try { await (await navigator.storage.getDirectory()).removeEntry(INPUT_DIR, { recursive: true }); } catch (_) { } })(); // leftovers from earlier visits
 async function addFiles(files) {
   let vids = [...files].filter(f => /\.(mp4|mov|m4v)$/i.test(f.name) || /video\//.test(f.type) || isImageFile(f));
-  if (!vids.length) { setStatus('No supported files found. Choose videos (MP4, MOV) or photos (JPG, PNG, HEIC).', 'err'); return; }
+  if (!vids.length) { setStatus('Format tidak didukung. Pilih video (MP4, MOV) atau foto (JPG, PNG, WEBP, HEIC).', 'err'); return; }
   if (NEEDS_LOCAL_COPY) {
     let release; copying = new Promise(r => { release = r; });
     const out = [], lost = [];
@@ -1226,7 +1228,7 @@ async function select(i) {
   if (previewItem === it && previewFrame) { showPreview(); return; }
   await previewPromise; if (running || selected !== i) return;
   let release; previewPromise = new Promise(r => { release = r; });
-  setStatus(`Loading preview of ${it.file.name} …`, 'busy');
+  setStatus(`Memuat pratinjau ${it.file.name} …`, 'busy');
   try {
     let f;
     if (it.photo) { const full = await decodeImage(it.file); it.info = it.info || { photo: true, width: full.width, height: full.height, heic: isHeicFile(it.file) }; f = await scaledBitmap(full, 1600); if (f !== full) full.close(); }
@@ -1238,7 +1240,7 @@ async function select(i) {
     }
     if (previewFrame) previewFrame.close(); previewFrame = f; previewItem = it;
     showPreview(true);
-    setStatus(`Ready. ${countLabel(items)} in the queue.`);
+    setStatus(`Siap. ${countLabel(items)} dalam antrean.`);
   } catch (e) { it.status = 'error'; it.result = e && e.name === 'NotReadableError' ? readLostMsg() : e.message; setStatus(`Cannot open ${it.file.name}: ${e.message}`, 'err'); log(e.stack || e); }
   finally { release(); }
   renderQueue();
@@ -1418,7 +1420,7 @@ const SW_URL = '/color-correction/sw.js' + (DEV && new URLSearchParams(location.
 const SW_SCOPE = location.pathname === '/' ? '/' : '/color-correction/';   // a dive centre's address serves the app at its root
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || DEV)) {
   navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }).then(r => { swReg = swReg || r; }).catch(() => { });
-  // FreeColor works offline 100%
+  // freeColors Underwater bekerja 100% offline
 }
 async function streamWorker() {
   if (!swReg) { swReg = await navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }); }
@@ -1458,12 +1460,12 @@ async function saveOut(item) {
     showNotice('<b>File belum siap.</b> Tunggu proses selesai.');
     return;
   }
-  const filename = item.outName || f.name || ('FreeColor_' + Date.now() + (item.photo ? '.jpg' : '.mp4'));
+  const filename = item.outName || f.name || ('freeColors_' + Date.now() + (item.photo ? '.jpg' : '.mp4'));
 
   // 1. Android Capacitor Native Platform:
   if (typeof window !== 'undefined' && window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
     try {
-      setStatus(`Menyimpan ${filename} ke galeri...`, 'busy');
+      setStatus(`Menyimpan ${filename} ke galeri HP...`, 'busy');
       const { FreeColorGallery } = window.Capacitor.Plugins || {};
       if (FreeColorGallery) {
         const size = f.size || 0;
@@ -1505,7 +1507,7 @@ async function saveOut(item) {
               isFirst: c === 0,
               isLast: c === totalChunks - 1
             });
-            setStatus(`Menyimpan video (${Math.round((c + 1) / totalChunks * 100)}%)...`, 'busy');
+            setStatus(`Menyimpan video ke galeri (${Math.round((c + 1) / totalChunks * 100)}%)...`, 'busy');
           }
           showNotice(`<b>✓ Video Berhasil Disimpan!</b><br>${esc(filename)} tersimpan di album Movies/FreeColor.`);
           setStatus(`Video tersimpan di Galeri: ${filename}`);
@@ -1916,12 +1918,12 @@ const CORR_INPUTS = () => [ui.scene, ui.strength, ui.greenish, ui.redRec, ui.con
 function followStart(base) {
   const f = $('#follow'); if (!f) return;
   CORR_INPUTS().forEach(e => e && (e.disabled = true)); $('#correctionCtl') && $('#correctionCtl').classList.add('locked');
-  f.innerHTML = '<span class="dot"></span><span>Following each video – the values below switch whenever the scene changes, also in the middle of a video. Adjustments are kept on top.</span>';
+  f.innerHTML = '<span class="dot"></span><span>Menyesuaikan otomatis dengan video – nilai berganti secara halus saat pemandangan bawah air berubah.</span>';
   f.hidden = false;
 }
 function followItem(item, key) {
   showAdjusted(key, adjFor(item));
-  const f = $('#follow'); if (f) f.innerHTML = `<span class="dot"></span><span>Now: <b>${esc(item.file.name)}</b> – ${PRESETS[key].label}</span>`;
+  const f = $('#follow'); if (f) f.innerHTML = `<span class="dot"></span><span>Sedang memproses: <b>${esc(item.file.name)}</b> – ${PRESETS[key] ? PRESETS[key].label : key}</span>`;
   const c = $('#correctionCtl'); if (c) { c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); }
 }
 function followEnd() {
@@ -1963,7 +1965,7 @@ function renderResults() {
     const btns = [];
     if (done.length) { const saveAllText = (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ? 'Simpan Semua ke Galeri' : (IS_MOBILE ? 'Simpan Semua' : 'Download Semua'); btns.push(`<button type="button" class="btn btn-glow" id="rsSaveAll">${saveAllText} (${done.length})</button>`); }
     btns.push(`<button type="button" class="btn btn-ghost" id="rsMore">Correct more</button>`);
-    if (!wmOn) btns.push(`<a class="btn btn-sun" data-donate href="${window.CC_DONATE_URL || '/color-correction#donate'}" target="_blank" rel="noopener">♥ Support the tool</a>`);
+    
     html += `<div class="rs-btns">${btns.join('')}</div>`;
   }
   if (failed.length) html += `<div class="rs-failed"><b>Not processed:</b><ul>${failed.map(i => `<li><span class="fname">${esc(i.file.name)}</span> – ${esc(i.result || 'error')}</li>`).join('')}</ul><span>Tell me about it: <a href="mailto:jonas@jjsap.com?subject=${encodeURIComponent((TENANT ? TENANT.host : 'dive.nordrift.dk') + ' error')}&body=${encodeURIComponent(failed.map(i => i.file.name + ': ' + (i.result || '')).join('\n') + '\n\n' + navigator.userAgent)}">send the error</a> or run the <a href="/color-correction/diag" target="_blank">browser check</a>.</span></div>`;
@@ -2010,10 +2012,7 @@ async function playResult(it, btn) {
   ccTrack('result_play', {});
 }
 const readLostMsg = () => (ccTrack('read_lost', { android: IS_ANDROID }), IS_ANDROID) ? 'Android withdrew the browser’s access to this file. Please select it again. If it keeps happening, open the app in Chrome instead of Edge, or pick the videos through "Files" / "Browse" instead of the gallery.' : 'The browser lost access to this file (it was moved, renamed or is still syncing). Please select it again.';
-function countLabel(list) {
-  const p = list.filter(isPhoto).length, v = list.length - p, w = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
-  return p && v ? `${w(v, 'video')} and ${w(p, 'photo')}` : p ? w(p, 'photo') : w(v, 'video');
-}
+function countLabel(list) { const p = list.filter(isPhoto).length, v = list.length - p; return p && v ? (v + ' video dan ' + p + ' foto') : p ? (p + ' foto') : (v + ' video'); }
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // ---- review nudge: shown once per finished batch, scrolls to the review form ----
@@ -2039,7 +2038,7 @@ async function start() { // a double tap (two Start buttons) must not run the pr
 async function startInner() {
   if (running) return;
   await copying; await wmReady;
-  if (!items.some(i => i.status === 'queued' || i.status === 'error' || i.status === 'cancelled')) { if (!items.length) ui.fileInput.click(); else setStatus('Everything in the queue is already processed.'); return; }
+  if (!items.some(i => i.status === 'queued' || i.status === 'error' || i.status === 'cancelled')) { if (!items.length) ui.fileInput.click(); else setStatus('Semua file dalam antrean sudah selesai diproses.'); return; }
   if (quotaBlocks(items.filter(i => (i.status === 'queued' || i.status === 'error' || i.status === 'cancelled') && !isPhoto(i)).length)) { setStatus(`The ${quota.limit} videos of this subscription year are used – photos still work. Write to jonas@jjsap.com for more.`, 'error'); return; }
   // Seamless start: folder selection is 100% optional
   if (outMode !== 'fsa') { for (const it of items) if (it.status !== 'done') it.outFile = null; await opfsClear(); }
@@ -2105,9 +2104,9 @@ async function startInner() {
   const sceneCount = {}; if (TENANT) for (const i of batch.items) if (i.status === 'done' && !isPhoto(i) && i.detected) sceneCount[i.detected] = (sceneCount[i.detected] || 0) + 1; // dive-centre dashboard: what was filmed, phone or laptop
   if (okCount && !devClip) ccStat('run', { videos: okCount - okPhotos, photos: okPhotos, frames: totalFrames, pixels: totalPixels, minutes: Math.round(doneMinutes * 10) / 10, seconds: Math.round(secs), ...(TENANT ? { mobile: IS_MOBILE ? 1 : 0, scenes: sceneCount } : {}) });
   ccTrack(cancelled ? 'run_cancel' : 'run_done', { videos: okCount - okPhotos, photos: okPhotos, frames: totalFrames, seconds: Math.round(secs), fps: secs > 0 ? Math.round(totalFrames / secs) : 0, watermark: wmOn ? 'on' : 'off' });
-  if (cancelled) setStatus('Cancelled. Partial files were deleted.');
-  else if (okCount) setStatus(`Done: ${countLabel(batch.items.filter(i => i.status === 'done'))} in ${fmtTime(secs)}. ${outMode === 'fsa' ? `Files are in "${dirHandle ? dirHandle.name : 'dev'}".` : (outMode === 'stream' ? 'The files are in your Downloads folder.' : IS_ANDROID ? 'Tap Download on each file – it goes to your Downloads folder.' : IS_MOBILE ? 'Tap Save on each file to keep it.' : 'Click Download on each file to save it.')}`);
-  else setStatus('Nothing was processed. See the error in the list.', 'err');
+  if (cancelled) setStatus('Proses dibatalkan.');
+  else if (okCount) setStatus(`Selesai: ${countLabel(batch.items.filter(i => i.status === 'done'))} dalam ${fmtTime(secs)}. Silakan unduh atau simpan hasil di bawah.`);
+  else setStatus('Tidak ada file yang diproses. Periksa pesan kendala pada daftar.', 'err');
   showResults({ ok: okCount, total: batch.items.length, frames: totalFrames, secs, cancelled });
   if (!cancelled && okCount) showReviewNudge(okCount);
   if (previewFrame) showPreview();

@@ -1,0 +1,320 @@
+/* freeColors Underwater · Ocean & White Modern Theme · Developed by Yoyo R Himam */
+:root {
+  --night: #020e1a;
+  --abyss: #031526;
+  --deep: #06233d;
+  --navy: #0b3456;
+  --sea: #0e4570;
+  --ocean-blue: #0077b6;
+  --ocean-cyan: #00b4d8;
+  --ocean-light: #90e0ef;
+  --ocean-foam: #e0fbfc;
+  --pure-white: #ffffff;
+  --white-card: rgba(255, 255, 255, 0.08);
+  --white-card-hover: rgba(255, 255, 255, 0.14);
+  --white-border: rgba(255, 255, 255, 0.22);
+  --white-border-subtle: rgba(255, 255, 255, 0.12);
+  --ice: #ffffff;
+  --mist: #c7dbe6;
+  --aurora: #00b4d8;
+  --glow: #48cae4;
+  --sun: #ffb703;
+  --coral: #ff70a6;
+}
+
+body {
+  background: radial-gradient(circle at 50% 0%, #083358 0%, #03172b 45%, #010c18 100%) fixed !important;
+  color: #ffffff !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif !important;
+  min-height: 100vh;
+}
+
+/* Glassmorphism Navigation Bar */
+.nav {
+  background: rgba(3, 21, 38, 0.8) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid var(--white-border) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 50 !important;
+  padding: 0.65rem 0 !important;
+}
+
+.brand-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff !important;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-decoration: none;
+}
+
+.brand-title .sea-icon {
+  font-size: 1.5rem;
+  filter: drop-shadow(0 2px 8px rgba(0, 180, 216, 0.6));
+}
+
+.developer-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.developer-badge .dev-star {
+  color: #ffd166;
+  margin-right: 5px;
+}
+
+/* Vibrant Action Buttons */
+.btn-glow {
+  background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 4px 18px rgba(0, 180, 216, 0.45) !important;
+  border-radius: 10px !important;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+.btn-glow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 180, 216, 0.65) !important;
+}
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid var(--white-border) !important;
+  color: #ffffff !important;
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Panels with White Glass & Ocean Depth */
+.panel.side, .panel.main {
+  background: var(--white-card) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--white-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 16px 40px rgba(0, 15, 30, 0.35) !important;
+  transition: border-color 0.2s ease;
+}
+
+.panel.side:hover, .panel.main:hover {
+  border-color: rgba(255, 255, 255, 0.32) !important;
+}
+
+/* Drop Area: White accents & cyan glow */
+.drop {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 2px dashed rgba(255, 255, 255, 0.4) !important;
+  border-radius: 14px !important;
+  padding: 1.8rem 1.2rem !important;
+  transition: all 0.25s ease !important;
+}
+
+.drop:hover, .drop.over {
+  border-color: #48cae4 !important;
+  background: rgba(0, 180, 216, 0.12) !important;
+  box-shadow: 0 0 24px rgba(0, 180, 216, 0.3) !important;
+}
+
+.drop b {
+  color: #ffffff !important;
+  font-size: 1.15rem !important;
+}
+
+.drop span {
+  color: var(--ocean-light) !important;
+}
+
+/* Input sliders & controls */
+input[type="range"] {
+  accent-color: var(--ocean-cyan) !important;
+}
+
+select {
+  background: #092a47 !important;
+  color: #ffffff !important;
+  border: 1px solid var(--white-border) !important;
+  border-radius: 8px !important;
+  padding: 0.45rem 0.6rem !important;
+}
+
+/* Compare container */
+.cmp {
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid var(--white-border) !important;
+}
+
+.cmp-handle {
+  width: 4px !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.9), 0 0 24px rgba(0, 180, 216, 0.8) !important;
+}
+
+.cmp-tag {
+  background: rgba(2, 18, 36, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  font-size: 0.78rem !important;
+  letter-spacing: 0.05em !important;
+}
+
+/* Result cards */
+.rs-card {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: 1px solid var(--white-border) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25) !important;
+  transition: transform 0.2s ease, border-color 0.2s ease !important;
+}
+
+.rs-card:hover {
+  transform: translateY(-2px) !important;
+  border-color: var(--ocean-cyan) !important;
+}
+
+.rs-save {
+  background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  padding: 6px 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Progress bar wave */
+.progress .bar {
+  background: linear-gradient(90deg, #0077b6 0%, #00b4d8 50%, #48cae4 100%) !important;
+  box-shadow: 0 0 14px rgba(0, 180, 216, 0.6) !important;
+}
+
+/* Queue items */
+.queue li {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--white-border-subtle) !important;
+  border-radius: 10px !important;
+  margin-bottom: 6px !important;
+  transition: background 0.15s ease !important;
+}
+
+.queue li.selected, .queue li:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: var(--ocean-cyan) !important;
+}
+
+/* Step fold summary */
+.fold summary {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--white-border-subtle) !important;
+  border-radius: 10px !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.fold[open] summary {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.fold .ctl {
+  border: 1px solid var(--white-border-subtle) !important;
+  border-top: 0 !important;
+  border-bottom-left-radius: 10px !important;
+  border-bottom-right-radius: 10px !important;
+  background: rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Footer & Developer Section */
+footer {
+  margin-top: 3.5rem !important;
+  background: rgba(2, 14, 26, 0.9) !important;
+  border-top: 1px solid var(--white-border) !important;
+  padding: 2.5rem 0 2.2rem !important;
+}
+
+.foot-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.developer-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.65rem 1.25rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.dev-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 180, 216, 0.4);
+}
+
+/* Responsive view on mobile */
+@media (max-width: 900px) {
+  .app {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1.5rem !important;
+  }
+  .panel.side {
+    order: 2 !important;
+  }
+  .panel.main {
+    order: 1 !important;
+  }
+  .brand-title {
+    font-size: 1.15rem !important;
+  }
+  .developer-badge {
+    font-size: 0.68rem !important;
+    padding: 3px 8px !important;
+  }
+}

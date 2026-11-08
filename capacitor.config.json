@@ -1,6 +1,6 @@
 {
   "appId": "id.freecolor.underwater",
-  "appName": "FreeColor",
+  "appName": "freeColors Underwater",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
