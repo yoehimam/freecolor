@@ -9,7 +9,7 @@ echo 1. Membangun bundle Vite (Offline Engine)...
 call npm run build
 if %errorlevel% neq 0 (
     echo Error saat build Vite!
-    pause
+    if "%1" neq "--nopause" pause
     exit /b %errorlevel%
 )
 
@@ -17,7 +17,7 @@ echo 2. Sinkronisasi aset web ke project Android Capacitor...
 call npx cap sync android
 if %errorlevel% neq 0 (
     echo Error saat sync Capacitor!
-    pause
+    if "%1" neq "--nopause" pause
     exit /b %errorlevel%
 )
 
@@ -41,4 +41,4 @@ if exist gradlew.bat (
     echo File gradlew.bat tidak ditemukan.
 )
 cd ..
-pause
+if "%1" neq "--nopause" pause

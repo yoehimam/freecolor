@@ -109,14 +109,23 @@ if (SELFTEST) { const n = document.createElement('div'); n.className = 'notice';
 // minSpan: minimum percentile span kept after the stretch (caps contrast gain on hazy footage);
 // satCap: max increase of mean saturation vs. the source (0 = off).
 const PRESETS = {
-  deep:  { label: 'Laut Dalam',      strength: 0.5, blue: 0, window: 30, every: 3, alphaRed: 0.4,  pct: [0.01, 0.99],   capR: 1.25, floorB: 0.9, minSpan: 0.45, satCap: 0, sat: 1 },
-  blue:  { label: 'Air Biru Terbuka',     strength: 0.9, blue: 0, window: 30, every: 3, alphaRed: 0.85, pct: [0.01, 0.99],   capR: 1.8,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  reef:  { label: 'Terumbu Karang',           strength: 1.0, blue: 0, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  macro: { label: 'Makro / Senter',       strength: 0.9, blue: 0, window: 8,  every: 2, alphaRed: 0.85, pct: [0.003, 0.997], capR: 2.2,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  green: { label: 'Air Kehijauan',    strength: 1.0, blue: 1, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99],   capR: 2.6,  floorB: 0,   minSpan: 0.45, satCap: 0, sat: 1 },
-  hazy:  { label: 'Dangkal / Keruh', strength: 0.7, blue: 0, window: 20, every: 3, alphaRed: 0.6,  pct: [0.01, 0.99],   capR: 1.6,  floorB: 0,   minSpan: 0.5,  satCap: 1.4 },
+  freedive: { label: '🤿 Freedive / Air Biru', strength: 0.9, blue: 0, window: 30, every: 3, alphaRed: 0.85, pct: [0.01, 0.99], capR: 1.8, floorB: 0, minSpan: 0.45, satCap: 0, sat: 1, waterKeep: 1.6 },
+  shallow:  { label: '🐠 Terumbu Karang',       strength: 1.0, blue: 0, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99], capR: 2.6, floorB: 0, minSpan: 0.45, satCap: 0, sat: 1 },
+  deep:     { label: '🌊 Scuba / Laut Dalam',    strength: 0.6, blue: 0, window: 30, every: 3, alphaRed: 0.45, pct: [0.01, 0.99], capR: 1.35, floorB: 0.9, minSpan: 0.45, satCap: 0, sat: 1, waterKeep: 1.6 },
+  cave:     { label: '🕳️ Gua / Senter',          strength: 0.85, blue: 0, window: 10, every: 2, alphaRed: 0.75, pct: [0.003, 0.997], capR: 2.0, floorB: 0, minSpan: 0.4, satCap: 0, sat: 1.05 },
+  green:    { label: '🌿 Danau / Air Hijau',     strength: 1.0, blue: 1, window: 15, every: 3, alphaRed: 1.0,  pct: [0.01, 0.99], capR: 2.6, floorB: 0, minSpan: 0.45, satCap: 0, sat: 1 },
+  night:    { label: '🌙 Penyelaman Malam',      strength: 0.9, blue: 0, window: 8, every: 2, alphaRed: 0.9,  pct: [0.002, 0.998], capR: 2.4, floorB: 0, minSpan: 0.35, satCap: 0, sat: 1.1 },
+  hazy:     { label: 'Dangkal / Keruh',          strength: 0.7, blue: 0, window: 20, every: 3, alphaRed: 0.6,  pct: [0.01, 0.99], capR: 1.6, floorB: 0, minSpan: 0.5, satCap: 1.4 },
 };
-PRESETS.blue.waterKeep = 1.6; PRESETS.deep.waterKeep = 1.6;
+// Aliases for engine compatibility
+PRESETS.blue = PRESETS.freedive;
+PRESETS.reef = PRESETS.shallow;
+PRESETS.karang = PRESETS.shallow;
+PRESETS.scuba = PRESETS.deep;
+PRESETS.macro = PRESETS.cave;
+PRESETS.gua = PRESETS.cave;
+PRESETS.danau = PRESETS.green;
+PRESETS.malam = PRESETS.night;
 if (DEV && new URLSearchParams(location.search).has('wk')) { const v = +new URLSearchParams(location.search).get('wk'); PRESETS.blue.waterKeep = PRESETS.deep.waterKeep = v; } // localhost tuning
 // Hazy water that is clearly green (murky coastal water, lakes): the milky-water caps on contrast, saturation and red
 // gain stay, but the colour work follows Green water – blue compensation, full red recovery, strength 0.85 instead of
@@ -133,11 +142,11 @@ const HYST = DEV && new URLSearchParams(location.search).has('hyst') ? +new URLS
 function classify(m, span, cur) {
   const blueness = m[2] - m[0], h = cur ? HYST : 0;
   if (span !== undefined && span < 0.40 + (cur === 'hazy' ? 0.06 : -0.06) * h) return 'hazy'; // milky, low-contrast water (snorkelling, silt, plankton)
-  if (blueness <= 0.12) return 'macro';         // subject fills the frame, little water in view
+  if (blueness <= 0.12) return 'cave';         // subject fills the frame, little water in view
   if (m[1] > m[2] + 0.06 + (cur === 'green' ? -0.03 : 0.03) * h) return 'green'; // green clearly dominates blue
   if (blueness >= 0.55) return 'deep';          // almost nothing but water: gray-world would go purple
-  if (blueness >= 0.30) return 'blue';          // open water / wide shots
-  return 'reef';
+  if (blueness >= 0.30) return 'freedive';      // open water / wide shots
+  return 'shallow';
 }
 
 // ---------- UI refs ----------
@@ -1144,14 +1153,16 @@ function applyPreset(key, detected = false) {
   }
   if (!detected) ui.scene.value = key;
   ui.scene.options[0].textContent = detected ? `Auto (recommended) – detected: ${p.label}` : 'Auto (recommended)';
-  ui.sceneNote.textContent = (detected ? '' : 'Diterapkan ke semua file di antrean. ') + {
-    hazy: 'Air dangkal berpasir atau keruh (snorkeling, partikel sedimen). Menahan kontras dan saturasi agar warna bawah air tetap alami dan jernih.',
-    deep: 'Sebagian besar bingkai berupa air biru tua/terbuka. Memberikan pengangkatan lembut agar warna biru tidak berubah menjadi ungu.',
-    blue: 'Kompensasi spektrum merah seimbang menjaga air terbuka tetap biru alami, bukan sian/toska. Cocok untuk sudut lebar (wide shot).',
-    reef: 'Koreksi spektrum penuh dengan kontras seimbang. Pilihan utama untuk terumbu karang tropis dan bangkai kapal (wreck).',
-    macro: 'Rentang dinamis optimal melindungi highlight dari sorotan senter / strobe; responsif mengikuti gerakan subjek dekat.',
-    green: 'Kompensasi spektrum biru untuk danau, muara, atau perairan tropis kaya alga hijau.'
-  }[key];
+  ui.sceneNote.textContent = (detected ? '' : 'Diterapkan ke semua file di antrean. ') + ({
+    freedive: 'Air biru terbuka / freediving. Kompensasi merah seimbang menjaga air tetap biru alami.',
+    shallow: 'Terumbu karang tropis. Koreksi spektrum penuh dengan saturasi & kontras kaya biota.',
+    reef: 'Terumbu karang tropis. Koreksi spektrum penuh dengan saturasi & kontras kaya biota.',
+    deep: 'Laut dalam (>15m). Kontras halus menjaga warna biru gelap tidak menjadi ungu.',
+    cave: 'Gua / rekahan batu. Melindungi highlight sorotan senter dan mengangkat detail bayangan.',
+    green: 'Danau / perairan tawar / muara. Kompensasi spektrum biru untuk air kaya alga hijau.',
+    night: 'Penyelaman malam. Mempertahankan latar belakang hitam pekat dan menonjolkan objek senter.',
+    hazy: 'Air dangkal berpasir atau keruh. Menahan kontras dan saturasi agar warna bawah air tetap alami dan jernih.'
+  }[key] || 'Koreksi warna bawah air cerdas.');
   applying = false;
 }
 // Steps 2 and 3 are collapsible; the closed header shows the current values so nothing is hidden by surprise.
