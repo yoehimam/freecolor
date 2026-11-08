@@ -109,9 +109,21 @@ function scheduleWorkerRender(msg, transfer = []) {
     if (!isWorkerBusy) {
       executeWorkerTask({ msgId, msg, transfer, resolve, reject });
     } else {
-      // Coalesce: if user is moving sliders rapidly, drop older stale requests
+      // Coalesce: Chain previous callers to cleanly resolve with the result of the latest render
       if (pendingWorkerTask) {
-        pendingWorkerTask.reject(new Error('Superseded by newer render request'));
+        const prevResolve = pendingWorkerTask.resolve;
+        const prevReject = pendingWorkerTask.reject;
+        const curResolve = resolve;
+        const curReject = reject;
+
+        resolve = (res) => {
+          try { prevResolve(res); } catch {}
+          curResolve(res);
+        };
+        reject = (err) => {
+          try { prevReject(err); } catch {}
+          curReject(err);
+        };
       }
       pendingWorkerTask = { msgId, msg, transfer, resolve, reject };
     }
@@ -174,10 +186,18 @@ async function prewarmCoreLooks(assetId, autoParams, w, h) {
   const wkr = initWorker();
   if (!wkr) return;
 
+  // Let initial user render complete first
+  await new Promise((r) => setTimeout(r, 600));
+
   const coreLooks = ['freedive', 'alami', 'kreatif', 'super', 'strobe', 'lomba'];
   for (const lookId of coreLooks) {
-    // If user changed photos, cancel remaining prewarms
     if (lastWorkerAssetId !== assetId) break;
+
+    // Yield until worker is completely idle
+    while (isWorkerBusy || pendingWorkerTask) {
+      await new Promise((r) => setTimeout(r, 150));
+      if (lastWorkerAssetId !== assetId) return;
+    }
 
     const lookParams = {
       ...GRADE_DEFAULTS,
@@ -190,10 +210,7 @@ async function prewarmCoreLooks(assetId, autoParams, w, h) {
     if (renderCache.has(key)) continue;
 
     try {
-      // Yield to let any active user interactions take priority
-      await new Promise((r) => setTimeout(r, 60));
-      if (lastWorkerAssetId !== assetId) break;
-
+      if (isWorkerBusy || pendingWorkerTask) continue;
       const res = await scheduleWorkerRender({
         type: 'render',
         assetId,
@@ -202,6 +219,7 @@ async function prewarmCoreLooks(assetId, autoParams, w, h) {
         params: lookParams,
       });
 
+      if (!res?.buffer) continue;
       const clampedBytes = new Uint8ClampedArray(res.buffer);
       const canvas = document.createElement('canvas');
       canvas.width = w;
@@ -213,7 +231,7 @@ async function prewarmCoreLooks(assetId, autoParams, w, h) {
       const renderUrl = canvas.toDataURL('image/jpeg', 0.85);
       putCache(key, { url: renderUrl, metrics: res.metrics });
     } catch {
-      // Prewarm superseded or skipped; ignore silently
+      // Prewarm silently skipped
     }
   }
 }

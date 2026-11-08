@@ -231,27 +231,30 @@ export default function Editor() {
     setError('');
     setAiPhase('Memindai foto & spektrum bawah air…');
     let firstId = null;
+    let firstAsset = null;
     let failed = 0;
     for (let i = 0; i < files.length; i++) {
       try {
         const res = await api.upload(files[i]);
         setAssets((prev) => [...prev, { ...res.asset, condition: res.condition }]);
-        if (!firstId) firstId = res.asset.id;
+        if (!firstId) {
+          firstId = res.asset.id;
+          firstAsset = res.asset;
+        }
       } catch {
         failed++;
       }
     }
-    if (firstId) {
+    if (firstId && firstAsset) {
       setActiveId(firstId);
       setAiPhase('Mengidentifikasi subjek & warna air…');
       await new Promise((r) => setTimeout(r, 260));
       setAiPhase('Menyempurnakan restorasi optik & warna…');
       
-      const targetAsset = assets.find((a) => a.id === firstId) || null;
       const initial = {
         ...GRADE_DEFAULTS,
-        ...(targetAsset?.auto || {}),
-        preset: targetAsset?.auto?.preset || 'freedive',
+        ...(firstAsset.auto || {}),
+        preset: firstAsset.auto?.preset || 'freedive',
         refMatch: 0
       };
       setParams(initial);
@@ -265,6 +268,7 @@ export default function Editor() {
         setAfterUrl(res.url);
         setRenderMs(res.ms);
       } catch (err) {
+        if (!err || err.name === 'AbortError' || String(err.message || '').toLowerCase().includes('superseded')) return;
         console.warn('Initial render error on upload:', err);
       }
     }
@@ -319,6 +323,7 @@ export default function Editor() {
         setRenderMs(res.ms);
         setError('');
       } catch (err) {
+        if (!err || err.name === 'AbortError' || String(err.message || '').toLowerCase().includes('superseded')) return;
         if (ticket === seq.current) setError(err.message || 'Gagal memproses foto.');
       } finally {
         if (ticket === seq.current) setRendering(false);
@@ -412,6 +417,7 @@ export default function Editor() {
       setAfterUrl(res.url);
       setRenderMs(res.ms);
     } catch (err) {
+      if (!err || err.name === 'AbortError' || String(err.message || '').toLowerCase().includes('superseded')) return;
       console.warn('Render error during AI grading:', err);
     }
 
