@@ -19,6 +19,11 @@ if ('serviceWorker' in navigator) {
     for (const reg of regs) reg.unregister();
   });
 }
+if ('caches' in window) {
+  caches.keys().then(names => {
+    for (const name of names) caches.delete(name);
+  });
+}
 </script>
 </head>
 <body>
@@ -38,8 +43,8 @@ if ('serviceWorker' in navigator) {
       <div class="dev-badge-clean hide-sm">
         <span class="star">★</span> Developer: Yoyo R Himam
       </div>
-      <button class="btn-ocean-primary" id="startTop" style="padding:0.5rem 1.1rem;font-size:0.9rem;">
-        Mulai ⚡
+      <button class="btn-ocean-primary" id="startTop" style="padding:0.55rem 1.2rem;font-size:0.92rem;font-weight:700;">
+        ⚡ Mulai Koreksi
       </button>
     </div>
   </div>
@@ -56,216 +61,237 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div id="app">
-    <!-- 1. Top Section: Drop & Media Queue Strip -->
-    <section>
-      <div class="upload-hero" id="drop" role="button" tabindex="0" aria-label="Pilih atau tarik foto dan video ke sini">
-        <input id="fileInput" type="file" multiple accept="video/*,image/*,.mp4,.mov,.m4v,.jpg,.jpeg,.png,.webp,.avif,.heic,.heif">
-        <div style="font-size:2rem;margin-bottom:0.25rem;">📂</div>
-        <b>Tarik &amp; Lepas Foto atau Video Bawah Air di Sini</b>
-        <span>atau klik untuk memilih dari galeri perangkat · MP4/MOV · JPG/PNG/WEBP/HEIC · Mendukung banyak file sekaligus</span>
-      </div>
+    <!-- Studio 2-Column Responsive Workspace: Kiri Kanvas & Antrian, Kanan Panel Edit Langsung -->
+    <div class="studio-workspace">
 
-      <ul class="queue queue-strip" id="queue" style="margin-top:0.75rem;"></ul>
-    </section>
-
-    <!-- 2. Center Stage: Large Interactive Before/After Viewport -->
-    <section class="viewport-card" style="margin-top:1.25rem;">
-      <div class="cmp" id="cmp" style="box-shadow:none">
-        <canvas id="pvBefore" width="1280" height="720"></canvas>
-        <div class="cmp-after"><canvas id="glc" width="1280" height="720"></canvas></div>
-        <div class="cmp-handle" aria-hidden="true"></div>
-        <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Geser untuk membandingkan sebelum dan sesudah">
-        <span class="cmp-tag before">SEBELUM</span><span class="cmp-tag after">SESUDAH</span>
-        <div class="pv-empty" id="pvEmpty">
-          <div style="text-align:center;padding:2rem 1rem;">
-            <div style="font-size:2.8rem;margin-bottom:0.5rem;">🌊</div>
-            <b style="display:block;font-size:1.35rem;color:#ffffff;margin-bottom:0.4rem;">Pratinjau Interaktif Bawah Air</b>
-            <span style="color:#e0f2fe;font-size:0.95rem;">Pilih foto atau video di atas untuk melihat perbandingan warna sebelum &amp; sesudah secara instan.</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="canvas-info-bar">
-        <div class="mono" id="pvInfo"></div>
-        <div class="follow" id="follow" hidden style="margin:0;padding:2px 8px;font-size:0.78rem;"></div>
-      </div>
-    </section>
-
-    <!-- 3. Modern Studio Controls Deck (New Structure) -->
-    <section class="studio-controls-deck" style="margin-top:1.25rem;">
-      <div class="deck-tabs">
-        <button type="button" class="deck-tab-btn active" data-tab="tab-scene">1. Tipe Pemandangan (Scene)</button>
-        <button type="button" class="deck-tab-btn" data-tab="tab-sliders">2. Penyetelan Halus</button>
-        <button type="button" class="deck-tab-btn" data-tab="tab-export">3. Output &amp; Format</button>
-      </div>
-
-      <!-- Tab 1: Pemandangan / AI Scene -->
-      <div class="deck-content" id="tab-scene">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
-          <div>
-            <h3 style="margin:0;font-size:1.05rem;color:var(--text-primary);font-weight:700;">Deteksi &amp; Pilihan Pemandangan Bawah Air</h3>
-            <small style="color:var(--text-muted);">Pilih profil warna sesuai kedalaman dan kondisi perairan.</small>
-          </div>
-          <div class="apply-to" style="margin:0;">
-            <div class="seg" role="radiogroup" aria-label="Terapkan ke">
-              <label><input type="radio" name="applyTo" value="this" checked><span>File Ini</span></label>
-              <label><input type="radio" name="applyTo" value="all"><span>Semua File</span></label>
+      <!-- SISI KIRI: Kanvas Interaktif Sebelum / Sesudah & Daftar Antrean -->
+      <div class="studio-stage">
+        <div class="viewport-card">
+          <div class="stage-topbar">
+            <div class="stage-title">
+              <span class="dot-live"></span>
+              <span id="stageFileName">Pratinjau Langsung (WebGL2)</span>
             </div>
-            <button type="button" class="adj-reset" id="adjReset" hidden>Reset ke Otomatis</button>
+            <div class="stage-actions">
+              <button type="button" class="btn-tool-pill" id="toggleCompareBtn" title="Ganti mode perbandingan">
+                ↔ Geser Bandingkan
+              </button>
+              <button type="button" class="btn-tool-pill" id="resetSlidersBtn" title="Kembalikan semua slider ke nilai awal">
+                ↺ Reset Slider
+              </button>
+            </div>
+          </div>
+
+          <div class="cmp" id="cmp">
+            <canvas id="pvBefore" width="1280" height="720"></canvas>
+            <div class="cmp-after"><canvas id="glc" width="1280" height="720"></canvas></div>
+            <div class="cmp-handle" aria-hidden="true"></div>
+            <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Geser untuk membandingkan sebelum dan sesudah">
+            <span class="cmp-tag before">SEBELUM</span>
+            <span class="cmp-tag after">SESUDAH</span>
+            <div class="pv-empty" id="pvEmpty" role="button" tabindex="0" title="Klik untuk membuka file foto atau video">
+              <div class="empty-box">
+                <div class="empty-icon">🤿</div>
+                <h3>Pilih Foto atau Video Bawah Air</h3>
+                <p>Klik di sini atau seret file Anda untuk melihat hasil koreksi warna AI secara instan</p>
+                <div class="empty-badge">⚡ Akselerasi GPU 100% Offline</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="canvas-info-bar">
+            <div class="mono" id="pvInfo"></div>
+            <div class="follow" id="follow" hidden style="margin:0;padding:2px 8px;font-size:0.78rem;"></div>
           </div>
         </div>
 
-        <div style="margin-bottom:1rem;">
-          <label style="font-weight:700;font-size:0.88rem;color:var(--text-primary);display:block;margin-bottom:0.4rem;">Pilihan Scene:</label>
-          <select id="scene" style="width:100%;max-width:400px;font-size:0.95rem;">
-            <option value="auto" selected>Otomatis (Rekomendasi AI)</option>
-            <option value="deep">Laut Dalam · Open Water / Biru Tua</option>
-            <option value="blue">Air Biru Terbuka · Sudut Lebar (Wide)</option>
-            <option value="reef">Terumbu Karang · Standar Tropis</option>
-            <option value="macro">Makro / Jarak Dekat / Senter Strobe</option>
-            <option value="green">Air Kehijauan / Danau / Alga</option>
-            <option value="hazy">Dangkal / Keruh / Berpasir</option>
-          </select>
-          <small id="sceneNote" style="display:block;margin-top:0.5rem;color:var(--text-muted);font-size:0.82rem;line-height:1.5;">
-            Otomatis menganalisis spektrum warna dan melakukan transisi halus saat kondisi air berubah.
-          </small>
+        <!-- Antrian Media & Tombol Tambah File -->
+        <div class="queue-card">
+          <div class="queue-header">
+            <div class="qh-left">
+              <span class="qh-title">Daftar File Bawah Air</span>
+              <small class="qh-sub" id="statusText">Pilih foto/video untuk mulai mengedit.</small>
+            </div>
+            
+            <div class="upload-btn-wrap" id="drop" role="button" tabindex="0" title="Klik atau seret file ke sini">
+              <input id="fileInput" type="file" multiple accept="video/*,image/*,.mp4,.mov,.m4v,.jpg,.jpeg,.png,.webp,.avif,.heic,.heif">
+              <button type="button" class="btn-ocean-secondary" style="pointer-events:none;">
+                ➕ Tambah File Foto / Video
+              </button>
+            </div>
+          </div>
+          <ul class="queue queue-strip" id="queue"></ul>
         </div>
       </div>
 
-      <!-- Tab 2: Sliders Penyetelan Halus -->
-      <div class="deck-content" id="tab-sliders" style="display:none;">
-        <div class="sliders-grid">
-          <div class="slider-box">
-            <label>Kekuatan Koreksi <output id="strengthOut">100 %</output></label>
-            <input type="range" id="strength" min="0" max="100" value="100">
-            <small>Tingkat intensitas restorasi warna keseluruhan.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Pemulihan Spektrum Merah <output id="redRecOut">100</output></label>
-            <input type="range" id="redRec" min="0" max="150" value="100">
-            <small>Mengembalikan warna merah yang hilang diserap kedalaman air.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Kontras Bawah Air <output id="contrastOut">50</output></label>
-            <input type="range" id="contrast" min="0" max="100" value="50">
-            <small>Menghilangkan kabut dan merentangkan kedalaman kontras.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Saturasi Warna <output id="saturationOut">100 %</output></label>
-            <input type="range" id="saturation" min="50" max="150" value="100">
-            <small>Kepekatan dan kesegaran warna karang &amp; biota laut.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Suhu Warna (Warmth) <output id="warmthOut">Netral</output></label>
-            <input type="range" id="warmth" min="-50" max="50" value="0" step="5">
-            <small>Menyesuaikan temperatur warna lebih dingin atau hangat.</small>
-          </div>
-
-          <div class="slider-box" style="display:flex;align-items:center;justify-content:space-between;">
+      <!-- SISI KANAN: Panel Kontrol Lengkap (Preset Pemandangan & Slider Langsung Terlihat) -->
+      <aside class="studio-sidebar">
+        <div class="sidebar-card">
+          <div class="sidebar-header">
             <div>
-              <b style="font-size:0.9rem;display:block;color:var(--text-primary);">Kompensasi Air Hijau</b>
-              <small style="color:var(--text-muted);">Untuk danau atau air berkadar alga tinggi.</small>
+              <h2 class="sidebar-title">Panel Koreksi Warna</h2>
+              <p class="sidebar-sub">Geser slider di bawah untuk melihat perubahan langsung di foto.</p>
             </div>
-            <label class="switch-row" style="margin:0;"><input type="checkbox" id="greenish"><span class="switch"></span></label>
+          </div>
+
+          <!-- 1. Pilihan Pemandangan Cepat (Scene Pills) -->
+          <div class="control-section">
+            <div class="section-label">
+              <span>🎯 Pemandangan Air (Scene)</span>
+              <span id="sceneNote" class="section-subtext"></span>
+            </div>
+            <div class="scene-pills-grid">
+              <button type="button" class="scene-pill active" data-val="auto">⚡ Otomatis</button>
+              <button type="button" class="scene-pill" data-val="freedive">🤿 Freedive</button>
+              <button type="button" class="scene-pill" data-val="shallow">🐠 Karang Dangkal</button>
+              <button type="button" class="scene-pill" data-val="deep">🌊 Scuba Dalam</button>
+              <button type="button" class="scene-pill" data-val="cave">🕳️ Gua &amp; Celah</button>
+              <button type="button" class="scene-pill" data-val="green">🌿 Danau / Air Hijau</button>
+              <button type="button" class="scene-pill" data-val="night">🌙 Senter / Malam</button>
+            </div>
+            <!-- Elemen select asli untuk sinkronisasi cc-app.js -->
+            <select id="scene" style="display:none;">
+              <option value="auto">Auto</option>
+              <option value="freedive">Freedive</option>
+              <option value="shallow">Shallow</option>
+              <option value="deep">Deep</option>
+              <option value="cave">Cave</option>
+              <option value="green">Green</option>
+              <option value="night">Night</option>
+            </select>
+          </div>
+
+          <!-- 2. Slider Penyetelan Halus (Langsung terlihat tanpa tab tersembunyi!) -->
+          <div class="control-section">
+            <div class="section-label">
+              <span>🎛️ Penyetelan Warna &amp; Cahaya</span>
+            </div>
+
+            <!-- Pulihkan Merah (Red Recovery) -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <span class="slider-title">Pulihkan Merah (Red)</span>
+                <span class="slider-number red-text" id="redRecOut">0%</span>
+              </div>
+              <input type="range" id="redRec" min="-50" max="50" value="0" class="ocean-slider red-track" aria-label="Pulihkan Merah">
+              <small class="slider-hint">Kembalikan warna merah yang hilang diserap air</small>
+            </div>
+
+            <!-- Kompensasi Kehijauan (Green Cast) -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <div>
+                  <span class="slider-title">Air Kehijauan (Green Cast)</span>
+                  <small class="slider-hint" style="display:block;margin:0;">Koreksi rona hijau berlebih</small>
+                </div>
+                <label class="toggle-pill">
+                  <input type="checkbox" id="greenish">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Kekuatan Koreksi (Strength) -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <span class="slider-title">Kekuatan Koreksi</span>
+                <span class="slider-number" id="strengthOut">100%</span>
+              </div>
+              <input type="range" id="strength" min="0" max="200" value="100" class="ocean-slider" aria-label="Kekuatan Koreksi">
+              <small class="slider-hint">Intensitas percampuran warna hasil dengan aslinya</small>
+            </div>
+
+            <!-- Kontras -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <span class="slider-title">Kontras</span>
+                <span class="slider-number" id="contrastOut">0</span>
+              </div>
+              <input type="range" id="contrast" min="-50" max="50" value="0" class="ocean-slider" aria-label="Kontras">
+            </div>
+
+            <!-- Saturasi -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <span class="slider-title">Saturasi</span>
+                <span class="slider-number" id="saturationOut">0</span>
+              </div>
+              <input type="range" id="saturation" min="-50" max="50" value="0" class="ocean-slider" aria-label="Saturasi">
+            </div>
+
+            <!-- Suhu / Kehangatan (Warmth) -->
+            <div class="slider-box">
+              <div class="slider-top">
+                <span class="slider-title">Suhu / Kehangatan</span>
+                <span class="slider-number warm-text" id="warmthOut">0</span>
+              </div>
+              <input type="range" id="warmth" min="-50" max="50" value="0" class="ocean-slider warm-track" aria-label="Kehangatan">
+              <small class="slider-hint">Dingin (biru alami) ↔ Hangat (cahaya matahari)</small>
+            </div>
+          </div>
+
+          <!-- 3. Opsi Output & Format (Terlipat rapi) -->
+          <details class="export-collapsible">
+            <summary class="export-summary">
+              <span>⚙️ Pilihan Ukuran &amp; Format Simpan</span>
+              <span class="sum-arrow">▾</span>
+            </summary>
+            <div class="export-content">
+              <div class="opt-row">
+                <label for="outSize">Ukuran Resolusi</label>
+                <select id="outSize" class="studio-select">
+                  <option value="original" selected>Sesuai Asli (Paling Tajam)</option>
+                  <option value="1080p">1080p Full HD</option>
+                  <option value="4k">4K Ultra HD</option>
+                  <option value="720p">720p HD</option>
+                </select>
+              </div>
+              <div class="opt-row">
+                <label for="quality">Kualitas Simpan</label>
+                <select id="quality" class="studio-select">
+                  <option value="high" selected>Tinggi (Rekomendasi)</option>
+                  <option value="medium">Sedang (Lebih Cepat)</option>
+                </select>
+              </div>
+              <div class="opt-row">
+                <label for="outCodec">Format Video</label>
+                <select id="outCodec" class="studio-select">
+                  <option value="avc" selected>MP4 (H.264 / AVC - Universal)</option>
+                  <option value="hevc">MP4 (H.265 / HEVC)</option>
+                </select>
+              </div>
+              <div class="opt-row opt-checkbox">
+                <label for="denoise">Bersihkan Noise / Bintik Air (Marine Snow)</label>
+                <input type="checkbox" id="denoise">
+              </div>
+              <select id="smoothing" style="display:none;"><option value="5">5</option></select>
+              <select id="measureEvery" style="display:none;"><option value="6">6</option></select>
+              <select id="sideNote" style="display:none;"><option value="0">0</option></select>
+            </div>
+          </details>
+
+          <!-- Tombol Aksi Utama -->
+          <div class="sidebar-action-wrap">
+            <button type="button" class="btn-main-action" id="startBtn">
+              ⚡ Mulai Koreksi &amp; Simpan
+            </button>
+            <button type="button" class="btn-ocean-outline" id="cancelBtn" style="display:none;width:100%;margin-top:0.5rem;">
+              Batal
+            </button>
           </div>
         </div>
-      </div>
 
-      <!-- Tab 3: Format & Resolusi Ekspor -->
-      <div class="deck-content" id="tab-export" style="display:none;">
-        <div class="sliders-grid">
-          <div class="slider-box">
-            <label>Resolusi Output Video</label>
-            <select id="outSize" style="width:100%;margin-top:0.3rem;">
-              <option value="3840" selected>Hingga 4K (Rekomendasi Tajam)</option>
-              <option value="0">Sama dengan Asli (5.3K tetap 5.3K)</option>
-              <option value="1920">1080p (Cepat &amp; File Kecil)</option>
-            </select>
-            <small>Skala resolusi video hasil render.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Format / Codec Video</label>
-            <select id="outCodec" style="width:100%;margin-top:0.3rem;">
-              <option value="avc" selected>H.264 (Kompatibel Semua HP &amp; Medsos)</option>
-              <option value="hevc">HEVC / H.265 (Ukuran File Lebih Hemat 30%)</option>
-            </select>
-            <small>H.264 memutar lancar di seluruh perangkat.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Kualitas Kompresi</label>
-            <select id="quality" style="width:100%;margin-top:0.3rem;">
-              <option value="1">Maksimum (Tanpa Penurunan Kualitas)</option>
-              <option value="0.75">Tinggi (≈75 %)</option>
-              <option value="0.45" selected>Standar (≈45 %)</option>
-              <option value="0.25">Hemat Ukuran (≈25 %)</option>
-            </select>
-            <small>Tingkat kompresi bit-rate.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Peredam Bintik (Denoise)</label>
-            <select id="denoise" style="width:100%;margin-top:0.3rem;">
-              <option value="off" selected>Nonaktif</option>
-              <option value="auto">Otomatis (Penyelaman Malam / Keruh)</option>
-              <option value="light">Ringan</option>
-              <option value="strong">Kuat</option>
-            </select>
-            <small>Menghilangkan grain tanpa mengaburkan detail terumbu.</small>
-          </div>
-
-          <div class="slider-box">
-            <label>Frekuensi Analisis Warna</label>
-            <select id="measureEvery" style="width:100%;margin-top:0.3rem;">
-              <option value="1">Setiap frame (Paling Akurat)</option>
-              <option value="2">Setiap 2 frame</option>
-              <option value="3" selected>Setiap 3 frame (Standar Cepat)</option>
-              <option value="6">Setiap 6 frame (Super Cepat)</option>
-            </select>
-          </div>
-
-          <div class="slider-box">
-            <label>Penghalusan Warna (Anti-Flicker)</label>
-            <select id="smoothing" style="width:100%;margin-top:0.3rem;">
-              <option value="auto" selected>Otomatis – mengikuti scene</option>
-              <option value="1">Nonaktif</option>
-              <option value="8">Ringan (8 frame)</option>
-              <option value="15">Normal (15 frame)</option>
-              <option value="30">Kuat (30 frame)</option>
-              <option value="60">Maksimum (60 frame)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Hub -->
-      <div class="studio-action-hub">
-        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-          <button class="btn btn-ghost" id="outDirBtn" style="font-size:0.82rem;padding:6px 12px;">Pilih Folder Simpan (Opsional)</button>
-          <span class="mono" id="outDirName" style="font-size:0.78rem;color:var(--text-muted);">Hasil langsung siap diunduh (Web) atau tersimpan di Galeri (Mobile).</span>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:0.75rem;">
-          <button class="btn btn-ghost" id="cancelBtn" disabled style="display:none;">Batal</button>
-          <button class="btn-ocean-primary" id="startBtn">
-            Mulai Koreksi Warna ⚡
-          </button>
-        </div>
-      </div>
-
-      <!-- Hidden compatibility elements required by cc-app.js -->
-      <details id="step2" style="display:none;"><summary><span id="sum2"></span></summary><div id="correctionCtl"><small id="adjNote"></small></div></details>
-      <details id="step3" style="display:none;"><summary><span id="sum3"></span></summary><select id="sideNote"><option value="0">0</option></select></details>
-      <button id="wmToggle" style="display:none;"></button>
-    </section>
+        <!-- Hidden compatibility elements required by cc-app.js -->
+        <details id="step2" style="display:none;"><summary><span id="sum2"></span></summary><div id="correctionCtl"><small id="adjNote"></small></div></details>
+        <details id="step3" style="display:none;"><summary><span id="sum3"></span></summary></details>
+        <button id="wmToggle" style="display:none;"></button>
+        <div id="outDirBtn" style="display:none;"></div>
+        <div id="outDirName" style="display:none;"></div>
+      </aside>
+    </div>
 
     <!-- 4. Progress, Status, & Results Section -->
-    <section class="results-stage" style="margin-top:1.25rem;">
+    <section class="results-stage" style="margin-top:1.5rem;">
       <div class="batch" id="batch" hidden>
         <div class="batch-top">
           <div class="batch-eta"><span class="mono">Estimasi</span><b id="bEta">–</b><small id="bEtaNote">mengukur kecepatan GPU…</small></div>
@@ -278,7 +304,7 @@ if ('serviceWorker' in navigator) {
       </div>
 
       <div class="progress" style="margin:0.75rem 0;"><div class="bar" id="progressBar"></div></div>
-      <div class="status" id="status"><span class="led"></span><span id="statusText">Siap. Pilih satu atau beberapa foto/video bawah air.</span></div>
+      <div class="status" id="status"><span class="led"></span><span id="statusLedText">Status siap.</span></div>
       
       <div class="results" id="results" hidden style="margin-top:1.25rem;"></div>
       <div class="notice" id="hwNote" hidden style="margin-top:0.75rem;"></div>
@@ -338,20 +364,70 @@ if ('serviceWorker' in navigator) {
 <script src="/cc-app.js"></script>
 <script src="/cc-compare.js" defer></script>
 
-<!-- Interactive tab script -->
+<!-- Script Sinkronisasi Interaktif Studio -->
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const tabs = document.querySelectorAll('.deck-tab-btn');
-  const contents = document.querySelectorAll('.deck-content');
-  tabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      contents.forEach(c => c.style.display = 'none');
-      btn.classList.add('active');
-      const target = document.getElementById(btn.dataset.tab);
-      if (target) target.style.display = 'block';
+  // 1. Sinkronisasi Pemandangan (Scene Pills) dengan <select id="scene">
+  const scenePills = document.querySelectorAll('.scene-pill');
+  const sceneSelect = document.getElementById('scene');
+  
+  scenePills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      scenePills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      if (sceneSelect) {
+        sceneSelect.value = pill.dataset.val;
+        sceneSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     });
   });
+
+  if (sceneSelect) {
+    sceneSelect.addEventListener('change', () => {
+      scenePills.forEach(p => {
+        p.classList.toggle('active', p.dataset.val === sceneSelect.value);
+      });
+    });
+  }
+
+  // 2. Tombol Reset Slider ke Default
+  const resetBtn = document.getElementById('resetSlidersBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      ['redRec', 'contrast', 'saturation', 'warmth'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = 0; el.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      const st = document.getElementById('strength');
+      if (st) { st.value = 100; st.dispatchEvent(new Event('input', { bubbles: true })); }
+      const gr = document.getElementById('greenish');
+      if (gr) { gr.checked = false; gr.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+  }
+
+  // 3. Tombol Toggle Perbandingan 50/50 vs Lihat Hasil vs Lihat Asli
+  const toggleBtn = document.getElementById('toggleCompareBtn');
+  if (toggleBtn) {
+    let mode = 0;
+    toggleBtn.addEventListener('click', () => {
+      const cmp = document.getElementById('cmp');
+      const range = document.getElementById('cmpRange');
+      mode = (mode + 1) % 3;
+      const pos = mode === 0 ? 50 : mode === 1 ? 0 : 100;
+      if (cmp) cmp.style.setProperty('--pos', pos + '%');
+      if (range) range.value = pos;
+      toggleBtn.textContent = mode === 0 ? '↔ Perbandingan 50/50' : mode === 1 ? '✨ Lihat Sesudah' : '📷 Lihat Sebelum';
+    });
+  }
+
+  // 4. Klik Kanvas Kosong untuk Membuka File Picker
+  const pvEmpty = document.getElementById('pvEmpty');
+  if (pvEmpty) {
+    pvEmpty.addEventListener('click', () => {
+      const fi = document.getElementById('fileInput');
+      if (fi) fi.click();
+    });
+  }
 });
 </script>
 </body>
