@@ -13,7 +13,6 @@
 <link rel="stylesheet" href="/cc.css">
 <link rel="stylesheet" href="/white-blue-theme.css">
 <script>
-// Bersihkan service worker / cache lama dari sesi sebelumnya
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(regs => {
     for (const reg of regs) reg.unregister();
@@ -26,289 +25,270 @@ if ('caches' in window) {
 }
 </script>
 </head>
-<body>
+<body class="app-compact-body">
 
-<!-- Header Studio -->
-<header class="studio-header">
-  <div class="studio-nav">
-    <a href="/" class="studio-logo" aria-label="freeColors Underwater">
-      <span class="wave">🌊</span>
-      <div>
-        <span class="title">freeColors</span>
-        <span class="sub">Underwater</span>
-      </div>
+<!-- Header Studio Ultra Compact (Fixed 44px) -->
+<header class="app-header">
+  <div class="header-left">
+    <a href="/" class="app-brand" aria-label="freeColors Underwater">
+      <span class="brand-icon">🌊</span>
+      <span class="brand-name">freeColors</span>
+      <span class="brand-sub">Underwater</span>
     </a>
-
-    <div style="display:flex;align-items:center;gap:0.75rem;">
-      <div class="dev-badge-clean hide-sm">
-        <span class="star">★</span> Developer: Yoyo R Himam
-      </div>
-      <button class="btn-ocean-primary" id="startTop" style="padding:0.55rem 1.2rem;font-size:0.92rem;font-weight:700;">
-        ⚡ Mulai Koreksi
-      </button>
+    <div class="header-badge hide-mobile">
+      <span class="badge-star">★</span> Dev: <b>Yoyo R Himam</b>
     </div>
+  </div>
+
+  <div class="header-right">
+    <div class="header-status-pill hide-mobile" id="status">
+      <span class="led"></span>
+      <span id="statusText">Siap edit foto/video.</span>
+    </div>
+    <button type="button" class="btn-top-save" id="startTop">
+      ⚡ Simpan
+    </button>
   </div>
 </header>
 
-<main class="studio-container">
-  <h1 class="sr-only">freeColors Underwater – Studio Koreksi Warna Bawah Air</h1>
+<!-- Workspace Studio 100vh / Zero-Window-Scroll -->
+<main class="app-workspace" id="app">
+
+  <!-- ========================================================
+       AREA KIRI (Desktop) / ATAS (Mobile): VISUAL STAGE & KANVAS
+       ======================================================== -->
+  <section class="stage-container">
+    
+    <!-- Stage Mini Toolbar -->
+    <div class="stage-mini-bar">
+      <div class="stage-file-info">
+        <span class="live-dot"></span>
+        <span id="pvInfo" class="pv-info-text">Pratinjau Foto/Video</span>
+      </div>
+      <div class="stage-quick-tools">
+        <button type="button" class="tool-btn" id="toggleCompareBtn" title="Ganti mode sebelum/sesudah">
+          ↔ Bandingkan
+        </button>
+        <button type="button" class="tool-btn" id="resetSlidersBtn" title="Reset semua slider ke awal">
+          ↺ Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- Kanvas Interaktif (Auto-Fit Contain, Tidak Pernah Terpotong / Ter-scroll) -->
+    <div class="canvas-viewport-box">
+      <div class="cmp" id="cmp">
+        <canvas id="pvBefore" width="1280" height="720"></canvas>
+        <div class="cmp-after"><canvas id="glc" width="1280" height="720"></canvas></div>
+        <div class="cmp-handle" aria-hidden="true"></div>
+        <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Geser untuk membandingkan sebelum dan sesudah">
+        <span class="cmp-tag before">SEBELUM</span>
+        <span class="cmp-tag after">SESUDAH</span>
+        
+        <!-- Layar Kosong Sebelum Ada File -->
+        <div class="pv-empty" id="pvEmpty" role="button" tabindex="0" title="Klik untuk membuka file foto atau video">
+          <div class="pv-empty-inner">
+            <div class="empty-icon-bubble">🤿</div>
+            <h2 class="empty-title">Buka Foto atau Video Bawah Air</h2>
+            <p class="empty-desc">Klik di sini untuk memilih dari galeri atau seret file ke layar ini</p>
+            <div class="empty-pill">⚡ 100% Offline GPU WebGL2</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thumbnail Strip Antrean di Bawah Kanvas (Compact Horizontal Carousel) -->
+    <div class="queue-carousel-bar">
+      <div class="queue-uploader-btn" id="drop" role="button" tabindex="0" title="Tambah file foto/video">
+        <input id="fileInput" type="file" multiple accept="video/*,image/*,.mp4,.mov,.m4v,.jpg,.jpeg,.png,.webp,.avif,.heic,.heif">
+        <span>➕ Tambah</span>
+      </div>
+      <ul class="queue queue-strip" id="queue"></ul>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       AREA KANAN (Desktop) / BAWAH (Mobile): PANEL EDIT COMPACT
+       ======================================================== -->
+  <aside class="controls-panel">
+    
+    <!-- 1. Pilihan Pemandangan Air (Scene Pills) -->
+    <div class="ctrl-group">
+      <div class="ctrl-group-header">
+        <span class="ctrl-group-title">🎯 Pemandangan (Scene)</span>
+        <span id="sceneNote" class="ctrl-group-sub"></span>
+      </div>
+      <div class="scene-pills-scroll">
+        <button type="button" class="scene-pill active" data-val="auto">⚡ Auto</button>
+        <button type="button" class="scene-pill" data-val="freedive">🤿 Freedive</button>
+        <button type="button" class="scene-pill" data-val="shallow">🐠 Karang</button>
+        <button type="button" class="scene-pill" data-val="deep">🌊 Scuba</button>
+        <button type="button" class="scene-pill" data-val="cave">🕳️ Gua</button>
+        <button type="button" class="scene-pill" data-val="green">🌿 Danau</button>
+        <button type="button" class="scene-pill" data-val="night">🌙 Malam</button>
+      </div>
+      <select id="scene" style="display:none;">
+        <option value="auto">Auto</option>
+        <option value="freedive">Freedive</option>
+        <option value="shallow">Shallow</option>
+        <option value="deep">Deep</option>
+        <option value="cave">Cave</option>
+        <option value="green">Green</option>
+        <option value="night">Night</option>
+      </select>
+    </div>
+
+    <!-- 2. Slider Penyetelan Warna (Compact Touch Sliders) -->
+    <div class="ctrl-group sliders-group">
+      
+      <!-- Pulihkan Merah (Red Recovery) -->
+      <div class="compact-slider-row">
+        <div class="sl-header">
+          <span class="sl-name">Pulihkan Merah</span>
+          <span class="sl-badge red-badge" id="redRecOut">0%</span>
+        </div>
+        <input type="range" id="redRec" min="-50" max="50" value="0" class="c-slider red-accent" aria-label="Pulihkan Merah">
+      </div>
+
+      <!-- Air Kehijauan (Green Cast) -->
+      <div class="compact-slider-row toggle-row">
+        <span class="sl-name">Air Kehijauan (Green Cast)</span>
+        <label class="c-toggle">
+          <input type="checkbox" id="greenish">
+          <span class="c-toggle-track"></span>
+        </label>
+      </div>
+
+      <!-- Kekuatan Koreksi (Strength) -->
+      <div class="compact-slider-row">
+        <div class="sl-header">
+          <span class="sl-name">Kekuatan Koreksi</span>
+          <span class="sl-badge" id="strengthOut">100%</span>
+        </div>
+        <input type="range" id="strength" min="0" max="200" value="100" class="c-slider" aria-label="Kekuatan Koreksi">
+      </div>
+
+      <!-- Kontras -->
+      <div class="compact-slider-row">
+        <div class="sl-header">
+          <span class="sl-name">Kontras</span>
+          <span class="sl-badge" id="contrastOut">0</span>
+        </div>
+        <input type="range" id="contrast" min="-50" max="50" value="0" class="c-slider" aria-label="Kontras">
+      </div>
+
+      <!-- Saturasi -->
+      <div class="compact-slider-row">
+        <div class="sl-header">
+          <span class="sl-name">Saturasi</span>
+          <span class="sl-badge" id="saturationOut">0</span>
+        </div>
+        <input type="range" id="saturation" min="-50" max="50" value="0" class="c-slider" aria-label="Saturasi">
+      </div>
+
+      <!-- Suhu / Kehangatan (Warmth) -->
+      <div class="compact-slider-row">
+        <div class="sl-header">
+          <span class="sl-name">Kehangatan (Suhu)</span>
+          <span class="sl-badge warm-badge" id="warmthOut">0</span>
+        </div>
+        <input type="range" id="warmth" min="-50" max="50" value="0" class="c-slider warm-accent" aria-label="Kehangatan">
+      </div>
+    </div>
+
+    <!-- 3. Pengaturan Format & Resolusi (Collapsible Ringkas) -->
+    <details class="compact-details">
+      <summary class="details-summary">
+        <span>⚙️ Format &amp; Resolusi Simpan</span>
+        <span class="details-arrow">▾</span>
+      </summary>
+      <div class="details-content">
+        <div class="cfg-row">
+          <label for="outSize">Resolusi:</label>
+          <select id="outSize" class="c-select">
+            <option value="original" selected>Asli (Maksimal)</option>
+            <option value="1080p">1080p Full HD</option>
+            <option value="4k">4K Ultra HD</option>
+            <option value="720p">720p HD</option>
+          </select>
+        </div>
+        <div class="cfg-row">
+          <label for="quality">Kualitas:</label>
+          <select id="quality" class="c-select">
+            <option value="high" selected>Tinggi</option>
+            <option value="medium">Sedang</option>
+          </select>
+        </div>
+        <div class="cfg-row">
+          <label for="outCodec">Codec Video:</label>
+          <select id="outCodec" class="c-select">
+            <option value="avc" selected>MP4 (H.264)</option>
+            <option value="hevc">MP4 (H.265)</option>
+          </select>
+        </div>
+        <div class="cfg-row chk-row">
+          <label for="denoise">Denoise (Marine snow)</label>
+          <input type="checkbox" id="denoise">
+        </div>
+        <select id="smoothing" style="display:none;"><option value="5">5</option></select>
+        <select id="measureEvery" style="display:none;"><option value="6">6</option></select>
+        <select id="sideNote" style="display:none;"><option value="0">0</option></select>
+      </div>
+    </details>
+
+    <!-- 4. Tombol Utama Mulai Koreksi & Simpan -->
+    <div class="panel-action-box">
+      <button type="button" class="btn-action-primary" id="startBtn">
+        ⚡ Simpan Hasil Koreksi
+      </button>
+      <button type="button" class="btn-action-secondary" id="cancelBtn" style="display:none;">
+        Batal
+      </button>
+    </div>
+
+    <!-- Credit Footer Developer -->
+    <div class="panel-credit">
+      <span>freeColors Underwater · Dev: <b>Yoyo R Himam</b></span>
+    </div>
+
+    <!-- Hidden compatibility elements required by cc-app.js -->
+    <details id="step2" style="display:none;"><summary><span id="sum2"></span></summary><div id="correctionCtl"><small id="adjNote"></small></div></details>
+    <details id="step3" style="display:none;"><summary><span id="sum3"></span></summary></details>
+    <button id="wmToggle" style="display:none;"></button>
+    <div id="outDirBtn" style="display:none;"></div>
+    <div id="outDirName" style="display:none;"></div>
+    <div id="follow" hidden style="display:none;"></div>
+  </aside>
+
+  <!-- Section Progress & Modal Download (Mengambang / Pop-up Saat Pemrosesan) -->
+  <div class="modal-results-backdrop" id="resultsModal" hidden>
+    <div class="modal-results-card">
+      <div class="mrc-header">
+        <h3>Hasil Koreksi Siap!</h3>
+        <button type="button" class="mrc-close" id="closeResultsModal">✕</button>
+      </div>
+      <div class="batch" id="batch" hidden>
+        <div class="batch-top">
+          <div class="batch-eta"><span class="mono">Estimasi</span><b id="bEta">–</b><small id="bEtaNote">mengukur GPU…</small></div>
+          <div class="batch-rank" id="bRank"><span class="rank-ico" id="bRankIco">⚡</span><div><b id="bRankName">GPU Aktif</b><small id="bRankNote">WebGL2</small></div></div>
+        </div>
+        <div class="batch-track" id="bTrack"></div>
+        <div class="batch-stats mono">
+          <span><b id="bFrames">0</b> frame</span> · <span><b id="bElapsed">0:00</b></span>
+          <span style="display:none;"><b id="bAvg">–</b><b id="bLive">–</b><b id="bSpeed">–</b><b id="bVids">0/0</b></span>
+        </div>
+      </div>
+      <div class="progress" style="margin:0.5rem 0;"><div class="bar" id="progressBar"></div></div>
+      <div class="results" id="results" hidden></div>
+      <div class="notice" id="hwNote" hidden></div>
+    </div>
+  </div>
 
   <!-- Review nudge hidden -->
   <div class="review-nudge" id="rvNudge" hidden role="status">
-    <div class="rn-text"><b id="rvNudgeTitle">Proses Selesai!</b><span>File foto/video Anda telah siap disimpan.</span></div>
+    <div class="rn-text"><b id="rvNudgeTitle">Selesai!</b><span>File siap disimpan.</span></div>
     <button class="rn-close" id="rvNudgeClose" type="button" aria-label="Tutup">✕</button>
     <button id="rvNudgeGo" type="button" style="display:none;"></button>
-  </div>
-
-  <div id="app">
-    <!-- Studio 2-Column Responsive Workspace: Kiri Kanvas & Antrian, Kanan Panel Edit Langsung -->
-    <div class="studio-workspace">
-
-      <!-- SISI KIRI: Kanvas Interaktif Sebelum / Sesudah & Daftar Antrean -->
-      <div class="studio-stage">
-        <div class="viewport-card">
-          <div class="stage-topbar">
-            <div class="stage-title">
-              <span class="dot-live"></span>
-              <span id="stageFileName">Pratinjau Langsung (WebGL2)</span>
-            </div>
-            <div class="stage-actions">
-              <button type="button" class="btn-tool-pill" id="toggleCompareBtn" title="Ganti mode perbandingan">
-                ↔ Geser Bandingkan
-              </button>
-              <button type="button" class="btn-tool-pill" id="resetSlidersBtn" title="Kembalikan semua slider ke nilai awal">
-                ↺ Reset Slider
-              </button>
-            </div>
-          </div>
-
-          <div class="cmp" id="cmp">
-            <canvas id="pvBefore" width="1280" height="720"></canvas>
-            <div class="cmp-after"><canvas id="glc" width="1280" height="720"></canvas></div>
-            <div class="cmp-handle" aria-hidden="true"></div>
-            <input class="cmp-range" id="cmpRange" type="range" min="0" max="100" value="50" aria-label="Geser untuk membandingkan sebelum dan sesudah">
-            <span class="cmp-tag before">SEBELUM</span>
-            <span class="cmp-tag after">SESUDAH</span>
-            <div class="pv-empty" id="pvEmpty" role="button" tabindex="0" title="Klik untuk membuka file foto atau video">
-              <div class="empty-box">
-                <div class="empty-icon">🤿</div>
-                <h3>Pilih Foto atau Video Bawah Air</h3>
-                <p>Klik di sini atau seret file Anda untuk melihat hasil koreksi warna AI secara instan</p>
-                <div class="empty-badge">⚡ Akselerasi GPU 100% Offline</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="canvas-info-bar">
-            <div class="mono" id="pvInfo"></div>
-            <div class="follow" id="follow" hidden style="margin:0;padding:2px 8px;font-size:0.78rem;"></div>
-          </div>
-        </div>
-
-        <!-- Antrian Media & Tombol Tambah File -->
-        <div class="queue-card">
-          <div class="queue-header">
-            <div class="qh-left">
-              <span class="qh-title">Daftar File Bawah Air</span>
-              <small class="qh-sub" id="statusText">Pilih foto/video untuk mulai mengedit.</small>
-            </div>
-            
-            <div class="upload-btn-wrap" id="drop" role="button" tabindex="0" title="Klik atau seret file ke sini">
-              <input id="fileInput" type="file" multiple accept="video/*,image/*,.mp4,.mov,.m4v,.jpg,.jpeg,.png,.webp,.avif,.heic,.heif">
-              <button type="button" class="btn-ocean-secondary" style="pointer-events:none;">
-                ➕ Tambah File Foto / Video
-              </button>
-            </div>
-          </div>
-          <ul class="queue queue-strip" id="queue"></ul>
-        </div>
-      </div>
-
-      <!-- SISI KANAN: Panel Kontrol Lengkap (Preset Pemandangan & Slider Langsung Terlihat) -->
-      <aside class="studio-sidebar">
-        <div class="sidebar-card">
-          <div class="sidebar-header">
-            <div>
-              <h2 class="sidebar-title">Panel Koreksi Warna</h2>
-              <p class="sidebar-sub">Geser slider di bawah untuk melihat perubahan langsung di foto.</p>
-            </div>
-          </div>
-
-          <!-- 1. Pilihan Pemandangan Cepat (Scene Pills) -->
-          <div class="control-section">
-            <div class="section-label">
-              <span>🎯 Pemandangan Air (Scene)</span>
-              <span id="sceneNote" class="section-subtext"></span>
-            </div>
-            <div class="scene-pills-grid">
-              <button type="button" class="scene-pill active" data-val="auto">⚡ Otomatis</button>
-              <button type="button" class="scene-pill" data-val="freedive">🤿 Freedive</button>
-              <button type="button" class="scene-pill" data-val="shallow">🐠 Karang Dangkal</button>
-              <button type="button" class="scene-pill" data-val="deep">🌊 Scuba Dalam</button>
-              <button type="button" class="scene-pill" data-val="cave">🕳️ Gua &amp; Celah</button>
-              <button type="button" class="scene-pill" data-val="green">🌿 Danau / Air Hijau</button>
-              <button type="button" class="scene-pill" data-val="night">🌙 Senter / Malam</button>
-            </div>
-            <!-- Elemen select asli untuk sinkronisasi cc-app.js -->
-            <select id="scene" style="display:none;">
-              <option value="auto">Auto</option>
-              <option value="freedive">Freedive</option>
-              <option value="shallow">Shallow</option>
-              <option value="deep">Deep</option>
-              <option value="cave">Cave</option>
-              <option value="green">Green</option>
-              <option value="night">Night</option>
-            </select>
-          </div>
-
-          <!-- 2. Slider Penyetelan Halus (Langsung terlihat tanpa tab tersembunyi!) -->
-          <div class="control-section">
-            <div class="section-label">
-              <span>🎛️ Penyetelan Warna &amp; Cahaya</span>
-            </div>
-
-            <!-- Pulihkan Merah (Red Recovery) -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <span class="slider-title">Pulihkan Merah (Red)</span>
-                <span class="slider-number red-text" id="redRecOut">0%</span>
-              </div>
-              <input type="range" id="redRec" min="-50" max="50" value="0" class="ocean-slider red-track" aria-label="Pulihkan Merah">
-              <small class="slider-hint">Kembalikan warna merah yang hilang diserap air</small>
-            </div>
-
-            <!-- Kompensasi Kehijauan (Green Cast) -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <div>
-                  <span class="slider-title">Air Kehijauan (Green Cast)</span>
-                  <small class="slider-hint" style="display:block;margin:0;">Koreksi rona hijau berlebih</small>
-                </div>
-                <label class="toggle-pill">
-                  <input type="checkbox" id="greenish">
-                  <span class="toggle-track"></span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Kekuatan Koreksi (Strength) -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <span class="slider-title">Kekuatan Koreksi</span>
-                <span class="slider-number" id="strengthOut">100%</span>
-              </div>
-              <input type="range" id="strength" min="0" max="200" value="100" class="ocean-slider" aria-label="Kekuatan Koreksi">
-              <small class="slider-hint">Intensitas percampuran warna hasil dengan aslinya</small>
-            </div>
-
-            <!-- Kontras -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <span class="slider-title">Kontras</span>
-                <span class="slider-number" id="contrastOut">0</span>
-              </div>
-              <input type="range" id="contrast" min="-50" max="50" value="0" class="ocean-slider" aria-label="Kontras">
-            </div>
-
-            <!-- Saturasi -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <span class="slider-title">Saturasi</span>
-                <span class="slider-number" id="saturationOut">0</span>
-              </div>
-              <input type="range" id="saturation" min="-50" max="50" value="0" class="ocean-slider" aria-label="Saturasi">
-            </div>
-
-            <!-- Suhu / Kehangatan (Warmth) -->
-            <div class="slider-box">
-              <div class="slider-top">
-                <span class="slider-title">Suhu / Kehangatan</span>
-                <span class="slider-number warm-text" id="warmthOut">0</span>
-              </div>
-              <input type="range" id="warmth" min="-50" max="50" value="0" class="ocean-slider warm-track" aria-label="Kehangatan">
-              <small class="slider-hint">Dingin (biru alami) ↔ Hangat (cahaya matahari)</small>
-            </div>
-          </div>
-
-          <!-- 3. Opsi Output & Format (Terlipat rapi) -->
-          <details class="export-collapsible">
-            <summary class="export-summary">
-              <span>⚙️ Pilihan Ukuran &amp; Format Simpan</span>
-              <span class="sum-arrow">▾</span>
-            </summary>
-            <div class="export-content">
-              <div class="opt-row">
-                <label for="outSize">Ukuran Resolusi</label>
-                <select id="outSize" class="studio-select">
-                  <option value="original" selected>Sesuai Asli (Paling Tajam)</option>
-                  <option value="1080p">1080p Full HD</option>
-                  <option value="4k">4K Ultra HD</option>
-                  <option value="720p">720p HD</option>
-                </select>
-              </div>
-              <div class="opt-row">
-                <label for="quality">Kualitas Simpan</label>
-                <select id="quality" class="studio-select">
-                  <option value="high" selected>Tinggi (Rekomendasi)</option>
-                  <option value="medium">Sedang (Lebih Cepat)</option>
-                </select>
-              </div>
-              <div class="opt-row">
-                <label for="outCodec">Format Video</label>
-                <select id="outCodec" class="studio-select">
-                  <option value="avc" selected>MP4 (H.264 / AVC - Universal)</option>
-                  <option value="hevc">MP4 (H.265 / HEVC)</option>
-                </select>
-              </div>
-              <div class="opt-row opt-checkbox">
-                <label for="denoise">Bersihkan Noise / Bintik Air (Marine Snow)</label>
-                <input type="checkbox" id="denoise">
-              </div>
-              <select id="smoothing" style="display:none;"><option value="5">5</option></select>
-              <select id="measureEvery" style="display:none;"><option value="6">6</option></select>
-              <select id="sideNote" style="display:none;"><option value="0">0</option></select>
-            </div>
-          </details>
-
-          <!-- Tombol Aksi Utama -->
-          <div class="sidebar-action-wrap">
-            <button type="button" class="btn-main-action" id="startBtn">
-              ⚡ Mulai Koreksi &amp; Simpan
-            </button>
-            <button type="button" class="btn-ocean-outline" id="cancelBtn" style="display:none;width:100%;margin-top:0.5rem;">
-              Batal
-            </button>
-          </div>
-        </div>
-
-        <!-- Hidden compatibility elements required by cc-app.js -->
-        <details id="step2" style="display:none;"><summary><span id="sum2"></span></summary><div id="correctionCtl"><small id="adjNote"></small></div></details>
-        <details id="step3" style="display:none;"><summary><span id="sum3"></span></summary></details>
-        <button id="wmToggle" style="display:none;"></button>
-        <div id="outDirBtn" style="display:none;"></div>
-        <div id="outDirName" style="display:none;"></div>
-      </aside>
-    </div>
-
-    <!-- 4. Progress, Status, & Results Section -->
-    <section class="results-stage" style="margin-top:1.5rem;">
-      <div class="batch" id="batch" hidden>
-        <div class="batch-top">
-          <div class="batch-eta"><span class="mono">Estimasi</span><b id="bEta">–</b><small id="bEtaNote">mengukur kecepatan GPU…</small></div>
-          <div class="batch-rank" id="bRank"><span class="rank-ico" id="bRankIco">⚡</span><div><b id="bRankName">GPU Aktif</b><small id="bRankNote">Akselerasi WebGL2</small></div></div>
-        </div>
-        <div class="batch-track" id="bTrack" aria-label="Progress pemrosesan"></div>
-        <div class="batch-stats mono">
-          <span><b id="bAvg">–</b> avg fps</span><span><b id="bLive">–</b> live fps</span><span><b id="bSpeed">–</b> × realtime</span><span><b id="bFrames">0</b> frame</span><span><b id="bVids">0/0</b> file</span><span><b id="bElapsed">0:00</b> berlalu</span>
-        </div>
-      </div>
-
-      <div class="progress" style="margin:0.75rem 0;"><div class="bar" id="progressBar"></div></div>
-      <div class="status" id="status"><span class="led"></span><span id="statusLedText">Status siap.</span></div>
-      
-      <div class="results" id="results" hidden style="margin-top:1.25rem;"></div>
-      <div class="notice" id="hwNote" hidden style="margin-top:0.75rem;"></div>
-    </section>
   </div>
 
   <div class="modal" id="wmModal" hidden role="dialog" aria-modal="true" aria-labelledby="wmTitle" style="display:none !important;">
@@ -322,40 +302,9 @@ if ('caches' in window) {
 
   <section class="unsupported" id="unsupported" hidden>
     <h2>Browser Belum Mendukung WebGL2</h2>
-    <p>Silakan gunakan browser Google Chrome atau instal aplikasi Android freeColors Underwater.</p>
+    <p>Silakan gunakan browser Google Chrome atau buka lewat aplikasi Android freeColors Underwater.</p>
   </section>
 </main>
-
-<!-- Modern White & Blue Footer -->
-<footer class="studio-footer">
-  <div class="footer-content">
-    <div>
-      <div class="studio-logo" style="margin-bottom:0.4rem;">
-        <span class="wave">🌊</span>
-        <div>
-          <span class="title">freeColors</span>
-          <span class="sub">Underwater</span>
-        </div>
-      </div>
-      <p style="margin:0;font-size:0.85rem;color:var(--text-muted);max-width:540px;line-height:1.6;">
-        Aplikasi koreksi warna foto dan video bawah air dengan arsitektur GPU WebGL2 terintegrasi. Cepat, privat, dan 100% offline langsung di perangkat Anda.
-      </p>
-    </div>
-
-    <div class="dev-profile-card">
-      <div class="dev-avatar-white">Y</div>
-      <div>
-        <div style="font-size:0.75rem;color:var(--ocean-dark);text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Dikembangkan Oleh</div>
-        <div style="font-size:1.1rem;font-weight:800;color:var(--text-primary);">Yoyo R Himam</div>
-      </div>
-    </div>
-  </div>
-
-  <div style="max-width:1400px;margin:1.5rem auto 0;padding-top:1.2rem;border-top:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;font-size:0.8rem;color:var(--text-muted);">
-    <div>© <span id="year">2026</span> freeColors Underwater · Hak cipta dilindungi.</div>
-    <div class="mono" style="color:var(--ocean-dark);font-weight:600;">100% Offline GPU Engine</div>
-  </div>
-</footer>
 
 <script src="/vendor/mp4box.all.min.js"></script>
 <script src="/vendor/mp4-muxer.min.js"></script>
@@ -364,10 +313,10 @@ if ('caches' in window) {
 <script src="/cc-app.js"></script>
 <script src="/cc-compare.js" defer></script>
 
-<!-- Script Sinkronisasi Interaktif Studio -->
+<!-- Skrip Integrasi Studio Compact -->
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // 1. Sinkronisasi Pemandangan (Scene Pills) dengan <select id="scene">
+  // 1. Sinkronisasi Scene Pills dengan <select id="scene">
   const scenePills = document.querySelectorAll('.scene-pill');
   const sceneSelect = document.getElementById('scene');
   
@@ -390,7 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 2. Tombol Reset Slider ke Default
+  // 2. Tombol Reset Slider ke Nilai Awal
   const resetBtn = document.getElementById('resetSlidersBtn');
   if (resetBtn) {
     resetBtn.addEventListener('click', () => {
@@ -416,7 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const pos = mode === 0 ? 50 : mode === 1 ? 0 : 100;
       if (cmp) cmp.style.setProperty('--pos', pos + '%');
       if (range) range.value = pos;
-      toggleBtn.textContent = mode === 0 ? '↔ Perbandingan 50/50' : mode === 1 ? '✨ Lihat Sesudah' : '📷 Lihat Sebelum';
+      toggleBtn.textContent = mode === 0 ? '↔ Bandingkan' : mode === 1 ? '✨ Sesudah' : '📷 Sebelum';
     });
   }
 
@@ -428,6 +377,27 @@ document.addEventListener('DOMContentLoaded', () => {
       if (fi) fi.click();
     });
   }
+
+  // 5. Tampilkan Modal Hasil Ketika Pemrosesan Selesai / Sedang Berjalan
+  const resultsContainer = document.getElementById('results');
+  const batchContainer = document.getElementById('batch');
+  const resultsModal = document.getElementById('resultsModal');
+  const closeResultsModal = document.getElementById('closeResultsModal');
+
+  if (closeResultsModal && resultsModal) {
+    closeResultsModal.addEventListener('click', () => {
+      resultsModal.hidden = true;
+    });
+  }
+
+  // Monitor status pemrosesan untuk memunculkan modal hasil otomatis
+  const observer = new MutationObserver(() => {
+    if (!resultsContainer.hidden || !batchContainer.hidden) {
+      resultsModal.hidden = false;
+    }
+  });
+  if (resultsContainer) observer.observe(resultsContainer, { attributes: true, attributeFilter: ['hidden'] });
+  if (batchContainer) observer.observe(batchContainer, { attributes: true, attributeFilter: ['hidden'] });
 });
 </script>
 </body>
