@@ -878,13 +878,21 @@ function hevcLevels(W, H, fps) {
 async function pickEncoder(W, H, fps, bitrate, pref = 'avc', mode = 'variable', latency = 'quality') {
   W = Math.max(2, Math.floor(W / 2) * 2);
   H = Math.max(2, Math.floor(H / 2) * 2);
+  const isMob = IS_MOBILE || IS_ANDROID;
+  if (isMob) {
+    fps = Math.min(fps, 30);
+    bitrate = Math.min(bitrate, 12e6);
+  }
   const qp = mode === 'quantizer';
-  const base = { width: W, height: H, ...(qp ? {} : { bitrate: Math.round(bitrate) }), bitrateMode: mode, framerate: Math.round(fps * 100) / 100, latencyMode: latency, alpha: 'discard' };
   const avcCodecs = [
-    'avc1.4d002a', // Main Level 4.2 (Universal Android hardware support)
+    'avc1.4d002a', // Main Level 4.2
     'avc1.42002a', // Baseline Level 4.2
     'avc1.64002a', // High Level 4.2
+    'avc1.4d0028', // Main Level 4.0
+    'avc1.420028', // Baseline Level 4.0
+    'avc1.640028', // High Level 4.0
     'avc1.4d001f', // Main Level 3.1
+    'avc1.42001f', // Baseline Level 3.1
     'avc1.42001e', // Baseline Level 3.0
     'avc1.640034', // High Level 5.2
     'avc1.640033', // High Level 5.1
@@ -895,15 +903,49 @@ async function pickEncoder(W, H, fps, bitrate, pref = 'avc', mode = 'variable', 
   for (const t of tier) for (const l of lv) hevc.push(`hev1.1.6.${t}${l}.B0`);
   if (lv.length) hevc.push(`hvc1.1.6.L${lv[0]}.B0`);
   const cands = [...(pref === 'hevc' ? [] : avc), ...hevc.map(codec => ({ codec, hevc: { format: 'hevc' }, mux: 'hevc' })), ...(pref === 'hevc' ? avc : [])];
-  for (const hw of ['prefer-hardware', 'no-preference', 'prefer-software']) {
+
+  const hwList = ['prefer-hardware', 'no-preference', 'prefer-software'];
+  const latList = latency === 'realtime' ? ['realtime', undefined] : [latency, 'realtime', undefined];
+  const bModeList = mode === 'variable' ? ['variable', undefined, 'constant'] : [mode, 'variable', undefined];
+
+  for (const hw of hwList) {
     for (const c of cands) {
-      const cfg = { ...base, codec: c.codec, hardwareAcceleration: hw, ...(c.avc ? { avc: c.avc } : {}), ...(c.hevc ? { hevc: c.hevc } : {}) };
-      const label = (c.mux === 'avc' ? 'H.264' : 'HEVC') + (hw === 'prefer-hardware' ? '' : ' (software)');
-      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return { cfg, mux: c.mux, label }; } catch (_) { }
-      if (fps > 31) { const { framerate, ...nofr } = cfg; try { if ((await VideoEncoder.isConfigSupported(nofr)).supported) return { cfg: nofr, mux: c.mux, label }; } catch (_) { } }
+      for (const lat of latList) {
+        for (const bMode of bModeList) {
+          const cfg = {
+            width: W,
+            height: H,
+            codec: c.codec,
+            hardwareAcceleration: hw,
+            alpha: 'discard',
+            ...(qp ? {} : { bitrate: Math.round(bitrate) }),
+            ...(bMode ? { bitrateMode: bMode } : {}),
+            ...(fps ? { framerate: Math.round(fps * 100) / 100 } : {}),
+            ...(lat ? { latencyMode: lat } : {}),
+            ...(c.avc ? { avc: c.avc } : {}),
+            ...(c.hevc ? { hevc: c.hevc } : {})
+          };
+          const label = (c.mux === 'avc' ? 'H.264' : 'HEVC') + (hw === 'prefer-hardware' ? '' : ' (software)');
+          try {
+            if ((await VideoEncoder.isConfigSupported(cfg)).supported) return { cfg, mux: c.mux, label };
+          } catch (_) { }
+          // If dictionary format is rejected by mobile WebCodecs, test without it
+          if (c.avc || c.hevc) {
+            const { avc: _a, hevc: _h, ...cleanCfg } = cfg;
+            try {
+              if ((await VideoEncoder.isConfigSupported(cleanCfg)).supported) return { cfg: cleanCfg, mux: c.mux, label };
+            } catch (_) { }
+          }
+        }
+      }
     }
   }
-  if (mode !== 'variable') return pickEncoder(W, H, fps, bitrate, pref, 'variable', latency);
+  if (!qp && bitrate > 8e6) {
+    return pickEncoder(W, H, fps, 8e6, pref, 'variable', 'realtime');
+  }
+  if (!qp && bitrate > 4e6) {
+    return pickEncoder(W, H, fps, 4e6, pref, 'variable', 'realtime');
+  }
   throw new Error('Resolusi video melebihi batas hardware perangkat.');
 }
 // Fixed-quality value for the output-quality setting (QP 0–51, lower = better): Maximum 14, High 19, Standard 24, Small 28.
@@ -1009,13 +1051,30 @@ async function writePhoto(item, name, blob) {
 async function processPhoto(item, base, onProgress) {
   let bmp; try { bmp = await decodeImage(item.file); } catch (e) { throw stepErr('read photo', e); }
   let exif = null; try { exif = await readExifTiff(item.file); } catch (_) { }
-  curCamera = exif ? cameraOf(exif.subarray(0, 4096)) : null; // EXIF Make/Model: a DJI photo gets the same lighter touch as its video
+  curCamera = exif ? cameraOf(exif.subarray(0, 4096)) : null;
   let W = bmp.width, H = bmp.height; item.downscaled = null;
-  const sc = photoScale(W, H);
-  if (sc < 1) { const nb = await createImageBitmap(bmp, { resizeWidth: Math.round(W * sc), resizeHeight: Math.round(H * sc), resizeQuality: 'high' }); bmp.close(); bmp = nb; W = nb.width; H = nb.height; item.downscaled = `${W}×${H}`; }
+
+  // Cap photo on mobile/Android to FHD (max 1920px) for instant processing and smooth saving
+  const maxDim = (IS_MOBILE || IS_ANDROID) ? 1920 : 3840;
+  const maxSide = Math.max(W, H);
+  if (maxSide > maxDim) {
+    const scale = maxDim / maxSide;
+    const targetW = Math.max(2, Math.round(W * scale));
+    const targetH = Math.max(2, Math.round(H * scale));
+    const nb = await createImageBitmap(bmp, { resizeWidth: targetW, resizeHeight: targetH, resizeQuality: 'high' });
+    bmp.close(); bmp = nb; W = nb.width; H = nb.height; item.downscaled = `${W}×${H} (FHD)`;
+  } else {
+    const sc = photoScale(W, H);
+    if (sc < 1) {
+      const nb = await createImageBitmap(bmp, { resizeWidth: Math.round(W * sc), resizeHeight: Math.round(H * sc), resizeQuality: 'high' });
+      bmp.close(); bmp = nb; W = nb.width; H = nb.height; item.downscaled = `${W}×${H}`;
+    }
+  }
   ui.glc.width = W; ui.glc.height = H;
-  if (gl.drawingBufferWidth < W || gl.drawingBufferHeight < H) { // the GPU gave a smaller canvas than asked for
-    const f = Math.min(gl.drawingBufferWidth / W, gl.drawingBufferHeight / H); const nb = await createImageBitmap(bmp, { resizeWidth: Math.floor(W * f), resizeHeight: Math.floor(H * f), resizeQuality: 'high' }); bmp.close(); bmp = nb; W = nb.width; H = nb.height; ui.glc.width = W; ui.glc.height = H; item.downscaled = `${W}×${H}`;
+  if (gl.drawingBufferWidth < W || gl.drawingBufferHeight < H) {
+    const f = Math.min(gl.drawingBufferWidth / W, gl.drawingBufferHeight / H);
+    const nb = await createImageBitmap(bmp, { resizeWidth: Math.floor(W * f), resizeHeight: Math.floor(H * f), resizeQuality: 'high' });
+    bmp.close(); bmp = nb; W = nb.width; H = nb.height; ui.glc.width = W; ui.glc.height = H; item.downscaled = `${W}×${H}`;
   }
   setWatermark(W, H); ui.cmp.style.aspectRatio = `${W} / ${H}`; ui.cmp.classList.add('live'); ui.pvEmpty.hidden = true;
   item.bTotal = 1; showInfo(item); onProgress(0, 1, null);
@@ -1024,13 +1083,15 @@ async function processPhoto(item, base, onProgress) {
     uploadFrame(bmp);
     if (adj.scene === 'auto') { const key = classifyTexture(); s = withAdj(presetSettings(key), adj); label = PRESETS[key].label; item.detected = key; followItem(item, key); render(measure(s, false), s); }
     else render(measure(s), s);
-    copy = document.createElement('canvas'); copy.width = W; copy.height = H; copy.getContext('2d').drawImage(ui.glc, 0, 0); // same task as the draw
+    copy = document.createElement('canvas'); copy.width = W; copy.height = H; copy.getContext('2d').drawImage(ui.glc, 0, 0);
     item.thumb = snapshot(ui.glc);
   } catch (e) { throw stepErr('colour correction', e); } finally { bmp.close(); }
-  let blob = await new Promise((res, rej) => copy.toBlob(b => b ? res(b) : rej(stepErr('encode JPEG', new Error('The browser could not encode the photo.'))), 'image/jpeg', JPEG_Q[base.quality] || 0.9));
+  let blob = await new Promise((res, rej) => copy.toBlob(b => b ? res(b) : rej(stepErr('encode JPEG', new Error('Gagal kompresi foto.'))), 'image/jpeg', JPEG_Q[base.quality] || 0.9));
   copy.width = copy.height = 0;
-  exif = cleanTiff(exif);
-  if (exif) blob = await withExif(blob, exif);
+  try {
+    exif = cleanTiff(exif);
+    if (exif) blob = await withExif(blob, exif);
+  } catch (_) { }
   let bytes; try { bytes = await writePhoto(item, outBase(item) + '_corrected.jpg', blob); } catch (e) { throw stepErr('save file', e); }
   onProgress(1, 1, label); ui.cmp.classList.remove('live');
   return { frames: 1, pixels: W * H, bytes, codec: 'JPEG' + (exif ? ' + EXIF' : '') + (item.downscaled ? ' ' + item.downscaled : ''), bitrate: 0, scene: label, photo: true };
@@ -1557,7 +1618,8 @@ async function saveOut(item) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  setStatus(`Unduhan dimulai: ${filename}`);
+  setStatus(`Tersimpan / Mengunduh: ${filename}`);
+  showNotice(`<b>✓ Berhasil Disimpan!</b><br>${esc(filename)} tersimpan.`);
 }
 // Some hardware encoders (seen with AMD + Edge on Windows) do not honour high variable bitrates and deliver a fraction
 // of what was asked for. The first 3 seconds are measured; if the encoder is far below target, the file is started
@@ -1671,29 +1733,40 @@ async function processItemOnce(item, base, onProgress) {
     item.downscaled = `${oW}×${oH} (FHD)`;
     log(`convert ke FHD 1080p: ${oW}x${oH}`);
   }
+  if (IS_MOBILE || IS_ANDROID) {
+    bitrate = Math.min(bitrate, 12e6);
+  }
   try { enc = await pickEncoder(oW, oH, fps, bitrate, base.outCodec, encMode, encRealtime ? 'realtime' : 'quality'); }
   catch (e) {
     let ok = false;
-    const longSide = Math.max(oW, oH);
-    for (const targetLong of [2560, 1920, 1280, 854, 720]) {
-      if (longSide <= targetLong) continue;
-      const scale = targetLong / longSide;
+    for (const targetLong of [1920, 1280, 960, 854, 720, 640]) {
+      const curLong = Math.max(oW, oH);
+      if (curLong === targetLong) {
+        try {
+          enc = await pickEncoder(oW, oH, Math.min(fps, 30), 8e6, 'avc', 'variable', 'realtime');
+          bitrate = 8e6;
+          ok = true; break;
+        } catch (_) {}
+        continue;
+      }
+      if (curLong < targetLong) continue;
+      const scale = targetLong / curLong;
       const tw = Math.max(2, Math.floor((oW * scale) / 2) * 2);
       const th = Math.max(2, Math.floor((oH * scale) / 2) * 2);
-      const tb = Math.round(bitrate * (tw * th) / (oW * oH));
+      const tb = Math.min(bitrate, 8e6);
       try {
-        enc = await pickEncoder(tw, th, Math.min(fps, 30), tb, 'avc', encMode, 'quality');
+        enc = await pickEncoder(tw, th, Math.min(fps, 30), tb, 'avc', 'variable', 'realtime');
         oW = tw; oH = th; bitrate = tb; item.downscaled = `${oW}×${oH}`;
-        log(`encoder: downscaled to ${oW}x${oH}`);
+        log(`encoder fallback: downscaled to ${oW}x${oH}`);
         ok = true; break;
       } catch (_) { }
     }
     if (!ok) {
-      const scale = Math.min(1, 1280 / Math.max(oW, oH));
+      const scale = 720 / Math.max(oW, oH);
       const tw = Math.max(2, Math.floor((oW * scale) / 2) * 2);
       const th = Math.max(2, Math.floor((oH * scale) / 2) * 2);
-      enc = await pickEncoder(tw, th, Math.min(fps, 30), Math.min(bitrate, 8e6), 'avc', 'variable', 'quality');
-      oW = tw; oH = th; item.downscaled = `${oW}×${oH}`;
+      enc = await pickEncoder(tw, th, 30, 4e6, 'avc', 'variable', 'realtime');
+      oW = tw; oH = th; bitrate = 4e6; item.downscaled = `${oW}×${oH}`;
     }
   }
   if (base.outCodec === 'hevc' && enc.mux !== 'hevc' && !hevcEncWarned) { hevcEncWarned = true; ccTrack('hevc_enc_missing', {}); showNotice('<b>This browser reports that it cannot encode HEVC on this computer, so the files are saved as H.264.</b> The quality setting still applies. Whether a browser offers HEVC <i>encoding</i> depends on the browser version as well as the graphics card – if you are on Edge, try Chrome (or the other way round). The <a href="/color-correction/diag" target="_blank">diagnostics page</a> shows exactly what your browser supports.'); }
@@ -2124,8 +2197,11 @@ async function startInner() {
       });
       const secs = (performance.now() - ts) / 1000; totalFrames += r.frames; totalPixels += r.pixels || 0; okCount++; item.bFinal = r.frames; item.outBytes = r.bytes; doneMinutes += (item.info ? item.info.duration : 0) / 60;
       item.status = 'done'; rememberDone(item); if (r.photo) okPhotos++;
-      item.result = r.photo ? `Photo in ${secs.toFixed(1)} s · ${r.scene} · ${r.codec} · ${fmtMB(r.bytes)}` : `${r.frames} frames in ${fmtTime(secs)} (${(r.frames / secs).toFixed(1)} fps) · ${r.scene} · ${r.codec} ${(r.bitrate / 1e6).toFixed(0)} Mbit/s · ${fmtMB(r.bytes)}`;
+      item.result = r.photo ? `Foto selesai (${secs.toFixed(1)} dtk) · ${fmtMB(r.bytes)}` : `${r.frames} frame (${fmtTime(secs)}) · ${r.scene} · ${r.codec} · ${fmtMB(r.bytes)}`;
       log(`DONE ${item.file.name} ${JSON.stringify(r)} ${secs.toFixed(2)}s`);
+      if (r.photo || items.length === 1) {
+        try { await saveOut(item); } catch (autoErr) { console.warn('Auto save failed:', autoErr); }
+      }
     } catch (e) {
       if (e && e.message !== '__cancel' && outMode !== 'fsa' && outMode !== 'stream' && !item.memRetry && /save file|open output|write video|finalize/.test(e.message || '') && item.file.size < 600e6) {
         item.memRetry = true; item.noWritable = true; log('retrying in memory after: ' + e.message);
