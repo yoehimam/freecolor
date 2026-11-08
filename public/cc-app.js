@@ -1980,10 +1980,19 @@ function batchBegin(list) {
     ui.bTrack.appendChild(seg); batch.segs.set(it, seg);
   }
   layoutTrack();
-  ui.bEta.textContent = '–'; ui.bEtaNote.textContent = 'measuring speed …'; ui.bRank.className = 'batch-rank';
-  ui.bRankIco.textContent = '🫧'; ui.bRankName.textContent = 'Warming up'; ui.bRankNote.textContent = 'speed class appears after a few seconds';
-  ui.bAvg.textContent = ui.bLive.textContent = ui.bSpeed.textContent = '–'; ui.bFrames.textContent = '0'; ui.bVids.textContent = `0/${list.length}`; ui.bElapsed.textContent = '0:00';
-  ui.batch.hidden = false;
+  if (ui.bEta) ui.bEta.textContent = '–';
+  if (ui.bEtaNote) ui.bEtaNote.textContent = 'measuring speed …';
+  if (ui.bRank) ui.bRank.className = 'batch-rank';
+  if (ui.bRankIco) ui.bRankIco.textContent = '🫧';
+  if (ui.bRankName) ui.bRankName.textContent = 'Warming up';
+  if (ui.bRankNote) ui.bRankNote.textContent = 'speed class appears after a few seconds';
+  if (ui.bAvg) ui.bAvg.textContent = '–';
+  if (ui.bLive) ui.bLive.textContent = '–';
+  if (ui.bSpeed) ui.bSpeed.textContent = '–';
+  if (ui.bFrames) ui.bFrames.textContent = '0';
+  if (ui.bVids) ui.bVids.textContent = `0/${list.length}`;
+  if (ui.bElapsed) ui.bElapsed.textContent = '0:00';
+  if (ui.batch) ui.batch.hidden = false;
 }
 // Matrix layout: every video keeps a width proportional to its size (long clips stay visibly longer), but the
 // track wraps into as many rows as needed so 200+ videos fit the panel; rows get thinner as they multiply.
@@ -2039,13 +2048,32 @@ function batchTick(cur, done, total, live) {
   ui.bEtaNote.textContent = `${pctDone} % of the work done · finishes around ${new Date(Date.now() + eta * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${fmtTime(eta)} to go`;
   const speed = batch.srcSec / elapsed; ui.bSpeed.textContent = speed.toFixed(2);
   let r = 0; for (let i = 0; i < RANKS.length; i++) if (speed >= RANKS[i].min) r = i;
-  if (r !== batch.rank) { const up = r > batch.rank && batch.rank >= 0; batch.rank = r; ui.bRankIco.textContent = RANKS[r].ico; ui.bRankName.textContent = RANKS[r].name; ui.bRankNote.textContent = (cur.info && cur.info.hw !== false && RANKS[r].noteHw) || RANKS[r].note; ui.bRank.className = 'batch-rank'; if (up) { void ui.bRank.offsetWidth; ui.bRank.classList.add('up'); } }
+  if (r !== batch.rank) {
+    const up = r > batch.rank && batch.rank >= 0;
+    batch.rank = r;
+    if (ui.bRankIco) ui.bRankIco.textContent = RANKS[r].ico;
+    if (ui.bRankName) ui.bRankName.textContent = RANKS[r].name;
+    if (ui.bRankNote) ui.bRankNote.textContent = (cur.info && cur.info.hw !== false && RANKS[r].noteHw) || RANKS[r].note;
+    if (ui.bRank) {
+      ui.bRank.className = 'batch-rank';
+      if (up) { void ui.bRank.offsetWidth; ui.bRank.classList.add('up'); }
+    }
+  }
 }
 function batchItemEnd(it, frames) { if (frames) batchAdd(it, frames); const seg = batch.segs.get(it); if (!seg) return; seg.classList.remove('run'); seg.classList.add(it.status === 'done' ? 'done' : it.status === 'cancelled' ? 'cancel' : 'err'); seg.title = `${it.file.name} – ${it.status === 'done' ? 'done' : it.status === 'cancelled' ? 'cancelled' : 'failed: ' + (it.result || '')}`; if (it.status === 'done') seg.firstChild.style.width = ''; ui.bFrames.textContent = batch.frames.toLocaleString('en-US'); ui.bVids.textContent = `${batch.items.filter(i => i.status === 'done').length}/${batch.items.length}`; }
 function batchEnd(ok, secs) {
-  if (ok) { ui.bEta.textContent = 'Done'; ui.bEtaNote.textContent = `${batch.frames.toLocaleString('en-US')} frames in ${fmtTime(secs)} · ${(batch.frames / secs).toFixed(1)} fps on average`; }
-  else { ui.bEta.textContent = '–'; ui.bEtaNote.textContent = 'stopped'; }
-  ui.bElapsed.textContent = fmtClock(secs); if (secs > 0) { ui.bAvg.textContent = (batch.frames / secs).toFixed(1); ui.bSpeed.textContent = (batch.srcSec / secs).toFixed(2); }
+  if (ok) {
+    if (ui.bEta) ui.bEta.textContent = 'Done';
+    if (ui.bEtaNote) ui.bEtaNote.textContent = `${batch.frames.toLocaleString('en-US')} frames in ${fmtTime(secs)} · ${(batch.frames / secs).toFixed(1)} fps on average`;
+  } else {
+    if (ui.bEta) ui.bEta.textContent = '–';
+    if (ui.bEtaNote) ui.bEtaNote.textContent = 'stopped';
+  }
+  if (ui.bElapsed) ui.bElapsed.textContent = fmtClock(secs);
+  if (secs > 0) {
+    if (ui.bAvg) ui.bAvg.textContent = (batch.frames / secs).toFixed(1);
+    if (ui.bSpeed) ui.bSpeed.textContent = (batch.srcSec / secs).toFixed(2);
+  }
 }
 
 // ---- results panel: what happened, where the files are, what to do next ----
@@ -2467,7 +2495,7 @@ ui.startBtn.addEventListener('click', start); ui.startTop.addEventListener('clic
 ui.cancelBtn.addEventListener('click', () => { cancelled = true; ui.cancelBtn.disabled = true; setStatus('Cancelling …', 'busy'); });
 addEventListener('beforeunload', e => { if (running) { e.preventDefault(); e.returnValue = ''; } });
 syncOutputs();
-$('#year').textContent = new Date().getFullYear();
+const yr = $('#year'); if (yr) yr.textContent = new Date().getFullYear();
 log(`support: ${JSON.stringify(support)}`);
 
 // ---------- dev harness (localhost only): ?dev=<clip in /clips/> ----------
