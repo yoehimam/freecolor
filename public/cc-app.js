@@ -681,7 +681,16 @@ async function resolveDecoderConfig(base, soft = false) {
   ccTrack('decode_unsupported', { codec: base.codec, name });
   throw new Error(`${name} video (${base.codec}) is not supported here. ${why}`);
 }
-function showNotice(html) { ui.hwNote.innerHTML = html; ui.hwNote.hidden = false; }
+function showNotice(html) {
+  if (ui.hwNote) { ui.hwNote.innerHTML = html; ui.hwNote.hidden = false; }
+  const toast = $('#appToast'), toastText = $('#appToastText');
+  if (toast && toastText) {
+    toastText.innerHTML = html;
+    toast.hidden = false;
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => { toast.hidden = true; }, 7000);
+  }
+}
 function noteSoftwareDecode(name) {
   if (swDecodeSeen.has(name)) return; swDecodeSeen.add(name); ccTrack('software_decode', { codec: name });
   const tips = [], all = [...swDecodeSeen].join(' '); name = all; // tips cover every format seen so far
@@ -2061,8 +2070,13 @@ function renderResults() {
   const where = 'siap disimpan ke galeri perangkat';
   const mb = done.reduce((a, i) => a + (i.outBytes || 0), 0), frames = done.reduce((a, i) => a + (i.bFinal || i.bTotal || 0), 0);
   let head, sub;
-  if (!live.final) { head = done.length ? `${done.length} of ${total} done – keep going` : `Working on ${countLabel(inBatch)}`; sub = done.length ? `${fmtMB(mb)} written so far · finished files appear below as they complete` : 'Finished files will appear here as soon as each one is done.'; }
-  else { head = live.cancelled ? `Stopped – ${done.length} of ${total} done` : failed.length ? `${done.length} of ${total} done` : `All ${countLabel(done)} done`; sub = `${fmtTime(live.secs)} · ${fmtMB(mb)}`; }
+  if (!live.final) {
+    head = done.length ? `${done.length} dari ${total} selesai` : `Memproses ${countLabel(inBatch)}`;
+    sub = done.length ? `${fmtMB(mb)} selesai diproses` : 'Sedang memproses...';
+  } else {
+    head = live.cancelled ? `Dibatalkan – ${done.length} dari ${total} selesai` : failed.length ? `${done.length} dari ${total} selesai` : `Semua ${countLabel(done)} selesai`;
+    sub = `${fmtTime(live.secs)} · ${fmtMB(mb)}`;
+  }
   let html = `<div class="rs-head"><span class="rs-ico${live.final ? '' : ' busy'}" aria-hidden="true">${live.final ? (failed.length ? '!' : '✓') : ''}</span><div><b>${head}</b><span>${sub}</span></div></div>`;
   html += `<p class="rs-where">File siap disimpan ke Galeri.</p>`;
   if (done.length) {
@@ -2091,7 +2105,18 @@ function renderResults() {
   const more = $('#rsMore'); if (more) more.addEventListener('click', () => { box.hidden = true; ui.fileInput.click(); });
   const tg = $('#rsToggle'); if (tg) tg.addEventListener('click', () => { live.showAll = !live.showAll; renderResults(); });
 }
-function showResults(r) { live.final = true; live.secs = r.secs; live.cancelled = r.cancelled; renderResults(); ccTrack('results_shown', { ok: r.ok, mode: outMode }); }
+function showResults(r) {
+  live.final = true;
+  live.secs = r.secs;
+  live.cancelled = r.cancelled;
+  renderResults();
+  ccTrack('results_shown', { ok: r.ok, mode: outMode });
+  const failed = items.filter(i => i.status === 'error');
+  if (failed.length > 0) {
+    const modal = $('#resultsModal');
+    if (modal) modal.hidden = false;
+  }
+}
 // play a finished file in a lightweight overlay (reads it back from the folder / browser storage – nothing is uploaded)
 let playerUrl = null, playerBusy = false;
 async function playResult(it, btn) {

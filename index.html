@@ -49,6 +49,8 @@ if ('caches' in window) {
     </button>
   </div>
 </header>
+<div class="header-progress-wrap"><div class="header-progress-bar" id="progressBar"></div></div>
+<div class="app-toast" id="appToast" hidden><span id="appToastText"></span><button type="button" id="appToastClose" aria-label="Tutup">✕</button></div>
 
 <!-- Workspace Studio 100vh / Zero Scroll -->
 <main class="app-workspace" id="app">
@@ -194,49 +196,47 @@ if ('caches' in window) {
       </div>
     </div>
 
-    <!-- 3. Format Ekspor -->
-    <details class="compact-details">
-      <summary class="details-summary">
-        <span>⚙️ Opsi Ekspor</span>
-        <span class="details-arrow">▾</span>
-      </summary>
-      <div class="details-content">
-        <div class="cfg-row">
-          <label for="outSize">Resolusi</label>
-          <select id="outSize" class="c-select">
-            <option value="1920" selected>FHD 1080p</option>
-            <option value="1280">HD 720p</option>
-            <option value="0">Ukuran Asli</option>
-            <option value="3840">4K Ultra HD</option>
-          </select>
+    <!-- 3. Opsi Ekspor & Tombol Simpan (Inline Row) -->
+    <div class="panel-bottom-row">
+      <details class="compact-details inline-details">
+        <summary class="details-summary">
+          <span>⚙️ Opsi</span>
+        </summary>
+        <div class="details-content popover-content">
+          <div class="cfg-row">
+            <label for="outSize">Resolusi</label>
+            <select id="outSize" class="c-select">
+              <option value="1920" selected>FHD 1080p</option>
+              <option value="1280">HD 720p</option>
+              <option value="0">Ukuran Asli</option>
+              <option value="3840">4K Ultra HD</option>
+            </select>
+          </div>
+          <div class="cfg-row">
+            <label for="quality">Kualitas</label>
+            <select id="quality" class="c-select">
+              <option value="0.75" selected>Tinggi</option>
+              <option value="0.45">Sedang</option>
+              <option value="1">Maksimal</option>
+            </select>
+          </div>
+          <div class="cfg-row">
+            <label for="outCodec">Format</label>
+            <select id="outCodec" class="c-select">
+              <option value="avc" selected>MP4 (H.264)</option>
+              <option value="hevc">MP4 (H.265)</option>
+            </select>
+          </div>
+          <div class="cfg-row chk-row">
+            <label for="denoise">Denoise</label>
+            <input type="checkbox" id="denoise">
+          </div>
+          <select id="smoothing" style="display:none;"><option value="5">5</option></select>
+          <select id="measureEvery" style="display:none;"><option value="6">6</option></select>
+          <select id="sideNote" style="display:none;"><option value="0">0</option></select>
         </div>
-        <div class="cfg-row">
-          <label for="quality">Kualitas</label>
-          <select id="quality" class="c-select">
-            <option value="0.75" selected>Tinggi</option>
-            <option value="0.45">Sedang</option>
-            <option value="1">Maksimal</option>
-          </select>
-        </div>
-        <div class="cfg-row">
-          <label for="outCodec">Format</label>
-          <select id="outCodec" class="c-select">
-            <option value="avc" selected>MP4 (H.264)</option>
-            <option value="hevc">MP4 (H.265)</option>
-          </select>
-        </div>
-        <div class="cfg-row chk-row">
-          <label for="denoise">Denoise</label>
-          <input type="checkbox" id="denoise">
-        </div>
-        <select id="smoothing" style="display:none;"><option value="5">5</option></select>
-        <select id="measureEvery" style="display:none;"><option value="6">6</option></select>
-        <select id="sideNote" style="display:none;"><option value="0">0</option></select>
-      </div>
-    </details>
+      </details>
 
-    <!-- 4. Tombol Simpan -->
-    <div class="panel-action-box">
       <button type="button" class="btn-action-primary" id="startBtn">
         ⚡ Simpan Hasil
       </button>
@@ -246,7 +246,7 @@ if ('caches' in window) {
     </div>
 
     <div class="panel-credit">
-      <span>freeColors · Yoyo R Himam</span>
+      <span>freeColors Underwater · Dev: Yoyo R Himam</span>
     </div>
 
     <!-- Hidden compatibility elements required by cc-app.js -->
@@ -369,23 +369,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 5. Modal Hasil
+  // 5. Modal Hasil & Toast
   const resultsContainer = document.getElementById('results');
-  const batchContainer = document.getElementById('batch');
   const resultsModal = document.getElementById('resultsModal');
   const closeResultsModal = document.getElementById('closeResultsModal');
+  const toastClose = document.getElementById('appToastClose');
+  const appToast = document.getElementById('appToast');
 
   if (closeResultsModal && resultsModal) {
     closeResultsModal.addEventListener('click', () => { resultsModal.hidden = true; });
   }
-
-  const observer = new MutationObserver(() => {
-    if (!resultsContainer.hidden || !batchContainer.hidden) {
-      resultsModal.hidden = false;
-    }
-  });
-  if (resultsContainer) observer.observe(resultsContainer, { attributes: true, attributeFilter: ['hidden'] });
-  if (batchContainer) observer.observe(batchContainer, { attributes: true, attributeFilter: ['hidden'] });
+  if (toastClose && appToast) {
+    toastClose.addEventListener('click', () => { appToast.hidden = true; });
+  }
 
   // 6. Bingkai Presisi: Menjaga rasio dan batas foto
   function fitCmpFrame() {
