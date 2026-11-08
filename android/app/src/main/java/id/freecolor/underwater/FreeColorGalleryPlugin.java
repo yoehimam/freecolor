@@ -24,59 +24,68 @@ public class FreeColorGalleryPlugin extends Plugin {
     @PluginMethod
     public void saveImageToGallery(PluginCall call) {
         String base64Data = call.getString("base64");
+        if (base64Data == null || base64Data.trim().isEmpty()) {
+            base64Data = call.getString("base64Data");
+        }
         String filename = call.getString("filename");
+        if (filename == null || filename.trim().isEmpty()) {
+            filename = call.getString("fileName");
+        }
         if (filename == null || filename.trim().isEmpty()) {
             filename = "FreeColor_" + System.currentTimeMillis() + ".jpg";
         }
-        if (!filename.toLowerCase().endsWith(".jpg") && !filename.toLowerCase().endsWith(".jpeg") && !filename.toLowerCase().endsWith(".webp")) {
-            filename = filename + ".jpg";
-        }
 
         if (base64Data == null || base64Data.trim().isEmpty()) {
-            call.reject("Data gambar tidak boleh kosong");
+            call.reject("Data file tidak boleh kosong");
             return;
         }
 
         try {
-            // Remove data URI prefix if present (e.g. data:image/jpeg;base64,)
             if (base64Data.contains(",")) {
                 base64Data = base64Data.substring(base64Data.indexOf(",") + 1);
             }
 
-            // Decode directly into image file bytes (zero extra bitmap allocation to guarantee smooth performance on all phones)
             byte[] decoded = Base64.decode(base64Data, Base64.DEFAULT);
             if (decoded == null || decoded.length == 0) {
-                call.reject("Gagal memproses data gambar");
+                call.reject("Gagal memproses data media");
                 return;
             }
 
-            boolean isWebP = filename.toLowerCase().endsWith(".webp");
-            String mimeType = isWebP ? "image/webp" : "image/jpeg";
+            String lower = filename.toLowerCase();
+            boolean isVideo = lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".m4v");
+            boolean isWebP = lower.endsWith(".webp");
+            boolean isPng = lower.endsWith(".png");
+
+            String mimeType = isVideo ? "video/mp4" : (isWebP ? "image/webp" : (isPng ? "image/png" : "image/jpeg"));
+            String relativeDir = isVideo ? (Environment.DIRECTORY_MOVIES + File.separator + "FreeColor") : (Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
+
             long nowMs = System.currentTimeMillis();
             long nowSec = nowMs / 1000;
 
             OutputStream fos = null;
-            Uri imageUri = null;
+            Uri mediaUri = null;
             File savedFile = null;
             boolean savedViaMediaStore = false;
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
-                    // Android 10+ (API 29+): MediaStore Scoped Storage directly into Pictures/FreeColor
                     ContentResolver resolver = getContext().getContentResolver();
                     ContentValues contentValues = new ContentValues();
                     contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
                     contentValues.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                    contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + "FreeColor");
-                    // Essential date fields so phone gallery immediately displays it on top of "Photos" / "Recents"
-                    contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+                    contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir);
                     contentValues.put(MediaStore.MediaColumns.DATE_ADDED, nowSec);
                     contentValues.put(MediaStore.MediaColumns.DATE_MODIFIED, nowSec);
                     contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
-                    imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
-                    if (imageUri != null) {
-                        fos = resolver.openOutputStream(imageUri);
+                    Uri collection = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                    if (!isVideo) {
+                        contentValues.put(MediaStore.Images.Media.DATE_TAKEN, nowMs);
+                    }
+
+                    mediaUri = resolver.insert(collection, contentValues);
+                    if (mediaUri != null) {
+                        fos = resolver.openOutputStream(mediaUri);
                         if (fos != null) {
                             fos.write(decoded);
                             fos.flush();
@@ -85,14 +94,14 @@ public class FreeColorGalleryPlugin extends Plugin {
                         }
                         contentValues.clear();
                         contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                        resolver.update(imageUri, contentValues, null, null);
+                        resolver.update(mediaUri, contentValues, null, null);
 
                         try {
-                            resolver.notifyChange(imageUri, null);
+                            resolver.notifyChange(mediaUri, null);
                         } catch (Throwable ignored) {}
 
                         try {
-                            Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, imageUri);
+                            Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, mediaUri);
                             getContext().sendBroadcast(scanIntent);
                         } catch (Throwable ignored) {}
 
@@ -103,10 +112,9 @@ public class FreeColorGalleryPlugin extends Plugin {
                 }
             }
 
-            // Fallback for Android 9 or if MediaStore insert failed
             if (!savedViaMediaStore) {
-                File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-                File freeColorDir = new File(picturesDir, "FreeColor");
+                File targetDir = isVideo ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                File freeColorDir = new File(targetDir, "FreeColor");
                 if (!freeColorDir.exists()) {
                     freeColorDir.mkdirs();
                 }
@@ -118,7 +126,6 @@ public class FreeColorGalleryPlugin extends Plugin {
                 fos.close();
                 fos = null;
 
-                // Force MediaScanner to broadcast to phone Gallery immediately
                 MediaScannerConnection.scanFile(
                     getContext(),
                     new String[]{savedFile.getAbsolutePath()},
@@ -136,9 +143,9 @@ public class FreeColorGalleryPlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("success", true);
             result.put("filename", filename);
-            result.put("album", "Pictures/FreeColor");
+            result.put("album", isVideo ? "Movies/FreeColor" : "Pictures/FreeColor");
             result.put("sizeBytes", decoded.length);
-            result.put("message", "Foto tersimpan di Galeri album 'FreeColor'!");
+            result.put("message", "Tersimpan di Galeri album 'FreeColor'!");
             call.resolve(result);
 
         } catch (Exception e) {
