@@ -539,6 +539,10 @@ export const offlineEngine = {
     return this.uploadPhoto(rotatedFile, record.asset.gear);
   },
 
+  async rotatePhoto(assetId, degrees = 90) {
+    return this.rotate(assetId, degrees);
+  },
+
   removeAsset(assetId) {
     const record = assetStore.get(assetId);
     if (record?.origUrl) {

@@ -182,12 +182,18 @@ export default function Editor() {
   const active = assets.find((a) => a.id === activeId) || null;
   const val = (key) => params?.[key] ?? GRADE_DEFAULTS[key] ?? 0;
 
-  /* notices */
+  /* notices & errors auto-clear */
   useEffect(() => {
     if (!notice) return undefined;
     const t = setTimeout(() => setNotice(''), 1600);
     return () => clearTimeout(t);
   }, [notice]);
+
+  useEffect(() => {
+    if (!error) return undefined;
+    const t = setTimeout(() => setError(''), 3500);
+    return () => clearTimeout(t);
+  }, [error]);
 
   /* hold space / long-press to compare */
   useEffect(() => {

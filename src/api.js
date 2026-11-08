@@ -6,6 +6,6 @@ export const api = {
   upload: (file, gear = 'umum') => offlineEngine.uploadPhoto(file, gear),
   render: (assetId, params, edge = 1600) => offlineEngine.renderPhoto(assetId, params, edge),
   exportHighRes: (assetId, params, mime) => offlineEngine.exportHighRes(assetId, params, mime),
-  rotate: (assetId, deg = 90) => offlineEngine.rotatePhoto(assetId, deg),
+  rotate: (assetId, deg = 90) => offlineEngine.rotate(assetId, deg),
   removeAsset: (assetId) => offlineEngine.removeAsset(assetId),
 };
