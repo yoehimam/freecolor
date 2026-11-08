@@ -17,12 +17,7 @@ let TENANT = null;
 // The tag settings a centre saved in its dashboard (Vercel Blob, GET /api/branding) lie over tenants.json, so a change is live
 // within a minute without a deploy. Asked only on a tenant's address; if the lookup fails or takes > 2.5 s, tenants.json alone is used.
 const BRAND_KEYS = ['name', 'web', 'logo', 'size', 'corner', 'style', 'font', 'opacity', 'showName', 'showWeb', 'uppercase'];
-const brandingFor = host => Promise.race([fetch('/api/branding?host=' + encodeURIComponent(host), { cache: 'no-cache' }).then(r => r.ok ? r.json() : {}), new Promise(r => setTimeout(() => r({}), 2500))]).catch(() => ({}))
-  .then(b => Object.fromEntries(BRAND_KEYS.filter(k => b && b[k] !== undefined && b[k] !== null).map(k => [k, b[k]])));
-const tenantReady = fetch('/color-correction/tenants.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : {}).catch(() => ({}))
-  .then(async all => { TENANT = all && all[TENANT_HOST] ? { host: TENANT_HOST, ...all[TENANT_HOST], ...await brandingFor(TENANT_HOST) } : null;
-    if (DEV && TENANT) { const q = new URLSearchParams(location.search); for (const k of ['corner', 'style', 'scale', 'font', 'opacity']) if (q.get(k)) TENANT[k] = k === 'scale' || k === 'opacity' ? +q.get(k) : q.get(k); if (q.has('noweb')) TENANT.showWeb = false; if (q.has('noname')) TENANT.showName = false; if (q.has('asis')) TENANT.uppercase = false; } // localhost: try tag options
-    window.CC_TENANT = TENANT; if (TENANT) { try { applyTenant(TENANT); } catch (e) { log('tenant: ' + e); } } return TENANT; });
+const tenantReady = Promise.resolve(null);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtMB = b => (b / 1e6).toLocaleString('en-US', { maximumFractionDigits: b < 1e8 ? 1 : 0 }) + ' MB';
 const fmtTime = s => { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s` : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`; };
@@ -61,8 +56,11 @@ support.stream = 'serviceWorker' in navigator && typeof ReadableStream !== 'unde
 // Desktop with folder access -> write into the chosen folder. Desktop WITHOUT it (Brave, Firefox, locked-down Chrome) -> stream each
 // finished file straight into the browser's download (no storage quota). Phones -> browser storage + Save/Share.
 let outMode = OUT_OVERRIDE || (support.fs && !IS_MOBILE ? 'fsa' : (!IS_MOBILE && support.stream) ? 'stream' : support.opfs ? 'opfs' : 'none');
-if (!(support.codecs && support.gl && (support.fs || support.opfs || support.stream || devClip))) {
-  $('#unsupported').hidden = false; $('#app').hidden = true; try { ccTrack('unsupported', { codecs: support.codecs, fs: support.fs, opfs: support.opfs, gl: support.gl, mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) }); } catch (_) { } return;
+if (!support.gl) {
+  $('#unsupported').hidden = false; $('#app').hidden = true; return;
+}
+if (outMode === 'none') {
+  outMode = support.opfs ? 'opfs' : 'memory';
 }
 
 // Count this browser once as a user (a flag only – no id, no cookie). Waits for the tenant lookup so the event carries the host.
@@ -91,7 +89,7 @@ if (SELFTEST) { const n = document.createElement('div'); n.className = 'notice';
   if (IS_ANDROID && drop) {
     $('#fileInput').setAttribute('accept', ANDROID_ACCEPT); // (ui is built further down – this block runs first)
     const any = document.createElement('button'); any.type = 'button'; any.className = 'btn btn-ghost browse-any'; any.id = 'browseAny'; any.textContent = 'Browse all files'; any.title = 'Opens the file picker without a file-type filter';
-    any.addEventListener('click', e => { e.stopPropagation(); ui.fileInput.setAttribute('accept', '*/*'); ui.fileInput.click(); setTimeout(() => { if (ui.fileInput.getAttribute('accept') === '*/*') ui.fileInput.setAttribute('accept', ANDROID_ACCEPT); }, 4000); ccTrack('browse_any', {}); });
+    any.addEventListener('click', e => { e.stopPropagation(); const inp = $('#fileInput'); if (inp) { inp.setAttribute('accept', '*/*'); inp.click(); setTimeout(() => { if (inp.getAttribute('accept') === '*/*') inp.setAttribute('accept', ANDROID_ACCEPT); }, 4000); } ccTrack('browse_any', {}); });
     drop.after(any);
   }
   if (IS_IOS) ccTrack('ios_app_open', { codecs: support.codecs, opfs: support.opfs });
@@ -1290,7 +1288,7 @@ async function makeTarget(item) {
   const name = outBase(item) + '_corrected.mp4';
   item.outName = name;
   if (outMode === 'stream') return makeStreamTarget(item, name);
-  if (outMode !== 'fsa') return makeOpfsTarget(item, name);
+  if (outMode === 'memory') return makeMemoryTarget(item, name, null); if (outMode !== 'fsa') { try { return await makeOpfsTarget(item, name); } catch (e) { return makeMemoryTarget(item, name, e); } }
   if (devClip) {
     const t = new Mp4Muxer.ArrayBufferTarget();
     return { name, target: t, finish: async () => { await fetch('/out/' + name, { method: 'PUT', body: t.buffer }); item.outFile = new File([t.buffer], name, { type: 'video/mp4' }); return t.buffer.byteLength; }, abort: async () => { } };
@@ -1436,10 +1434,9 @@ function makeMemoryTarget(item, name, cause) {
 
 // Hand a finished file to the user: share sheet on phones (iOS: "Save Video"), download elsewhere.
 async function saveOut(item) {
-  const f = item.outFile; if (!f) return;
+  const f = item.outFile || item.viewFile; if (!f) return;
   const filename = item.outName || f.name;
 
-  // 1. Android Capacitor Native Gallery Save
   if (typeof window !== 'undefined' && window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
     try {
       const reader = new FileReader();
@@ -1463,13 +1460,11 @@ async function saveOut(item) {
     }
   }
 
-  // 2. Share sheet on mobile browsers
   const file = new File([f], filename, { type: /\.jpe?g$/i.test(filename) ? 'image/jpeg' : 'video/mp4' });
   if (IS_MOBILE && !IS_ANDROID && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: file.name }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
   }
 
-  // 3. Normal download
   const url = URL.createObjectURL(f);
   const a = document.createElement('a');
   a.href = url;
@@ -1964,15 +1959,8 @@ function showReviewNudge(n) {
   ccTrack('review_nudge_show', { videos: n });
 }
 if (nudge.el) {
-  nudge.close.addEventListener('click', () => { nudge.el.hidden = true; ccTrack('review_nudge_dismiss', {}); });
-  nudge.go.addEventListener('click', () => {
-    nudge.el.hidden = true; ccTrack('review_nudge_click', {});
-    const rv = document.getElementById('reviews'); if (!rv) return;
-    const y0 = window.scrollY, y1 = y0 + rv.getBoundingClientRect().top - 90, t0 = performance.now(), dur = 700; // own easing: reliable in every browser
-    const tick = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / dur), e = 1 - Math.pow(1 - k, 3); window.scrollTo(0, y0 + (y1 - y0) * e); if (k >= 1) clearInterval(tick); }, 16);
-    rv.classList.remove('flash'); void rv.offsetWidth; rv.classList.add('flash');
-    setTimeout(() => { const b = rv.querySelector('.mantas.pick button'); if (b) b.focus({ preventScroll: true }); }, 700);
-  });
+  if (nudge.close) nudge.close.addEventListener('click', () => { nudge.el.hidden = true; });
+  if (nudge.go) nudge.go.addEventListener('click', () => { nudge.el.hidden = true; });
   document.addEventListener('cc:reviewed', () => { nudge.el.hidden = true; try { localStorage.setItem('cc-reviewed', '1'); } catch (_) { } });
 }
 
@@ -1988,10 +1976,8 @@ async function startInner() {
   if (quotaBlocks(items.filter(i => (i.status === 'queued' || i.status === 'error' || i.status === 'cancelled') && !isPhoto(i)).length)) { setStatus(`The ${quota.limit} videos of this subscription year are used – photos still work. Write to jonas@jjsap.com for more.`, 'error'); return; }
   if (outMode === 'fsa' && !dirHandle && !devClip) {
     try { await pickDir(); } catch (_) {
-      // No folder (cancelled, or the browser refused the one picked): offer the Downloads folder instead of leaving the
-      // user stuck – the next Start streams the files there, like in browsers without folder access.
-      if (support.stream) { outMode = 'stream'; ui.outDirName.textContent = 'No folder chosen – the files will go to your Downloads folder. To use a folder instead: ' + DIR_TIP; setStatus('No folder chosen. Click Start again to save the files in your Downloads folder – or choose a folder first.'); ccTrack('dir_none', {}); }
-      return;
+      outMode = support.opfs ? 'opfs' : 'memory';
+      ui.outDirName.textContent = 'Simpan langsung ke Download / Galeri aktif.';
     }
   }
   if (outMode !== 'fsa') { for (const it of items) if (it.status !== 'done') it.outFile = null; await opfsClear(); }
